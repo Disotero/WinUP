@@ -1,6 +1,5 @@
-<img src="0.1.0/windows-setup/system/icon.png" align="right" width="116" alt="WinUP">
+# WinUP <img src="0.1.0/windows-setup/system/icon.png" height="34" align="top" alt="">
 
-# WinUP
 
 **Автоматическая настройка чистой Windows 11 — в одном окне.**
 
