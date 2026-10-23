@@ -1,0 +1,65 @@
+name: Сборка .exe
+
+# Собирает .exe-лаунчеры на Windows-раннере GitHub.
+# Вручную (Actions → Run workflow) — кладёт .exe в артефакты запуска.
+# По тегу vX.Y.Z — собирает и выкладывает .exe в Releases.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Папка версии (например 0.1.0)"
+        required: true
+        default: "0.1.0"
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Определить версию и путь
+        id: ver
+        shell: pwsh
+        run: |
+          if ("$env:GITHUB_REF" -like 'refs/tags/*') { $v = "$env:GITHUB_REF".Replace('refs/tags/v','') }
+          else { $v = "${{ github.event.inputs.version }}" }
+          "version=$v"            >> $env:GITHUB_OUTPUT
+          "dir=$v/windows-setup"  >> $env:GITHUB_OUTPUT
+
+      - name: Собрать .exe (PS2EXE)
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module ps2exe -Scope CurrentUser -Force
+          Import-Module ps2exe
+          $root = "${{ steps.ver.outputs.dir }}"
+          $sys  = "$root/system"
+          $pv   = "${{ steps.ver.outputs.version }}.0"
+          Invoke-ps2exe -inputFile "$sys/launcher-setup.ps1"    -outputFile "$root/Настройка Windows.exe" `
+              -iconFile "$sys/icon.ico"    -requireAdmin -noConsole -title 'WinUP'          -company 'DISOTERO' -product 'WinUP' -version $pv
+          Invoke-ps2exe -inputFile "$sys/launcher-transfer.ps1" -outputFile "$root/Перенос данных.exe" `
+              -iconFile "$sys/icon-db.ico" -requireAdmin -noConsole -title 'Перенос данных' -company 'DISOTERO' -product 'WinUP' -version $pv
+          if (-not (Test-Path "$root/Настройка Windows.exe")) { throw "Настройка Windows.exe не собрался" }
+          if (-not (Test-Path "$root/Перенос данных.exe"))    { throw "Перенос данных.exe не собрался" }
+
+      - name: Артефакт сборки
+        uses: actions/upload-artifact@v4
+        with:
+          name: WinUP-exe
+          path: |
+            ${{ steps.ver.outputs.dir }}/Настройка Windows.exe
+            ${{ steps.ver.outputs.dir }}/Перенос данных.exe
+
+      - name: Выложить в Releases (по тегу)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.ver.outputs.dir }}/Настройка Windows.exe
+            ${{ steps.ver.outputs.dir }}/Перенос данных.exe
