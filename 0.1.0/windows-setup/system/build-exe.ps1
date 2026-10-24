@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
     Сборка .exe-лаунчеров с иконкой — запускать на Windows.
 
