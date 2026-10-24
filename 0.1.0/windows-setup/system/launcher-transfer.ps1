@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
     Тонкий лаунчер для «Перенос данных.exe».
     Его собирает system\build-exe.ps1 через PS2EXE (с иконкой и правами администратора).

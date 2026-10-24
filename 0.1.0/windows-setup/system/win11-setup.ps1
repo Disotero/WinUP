@@ -51,6 +51,10 @@ trap {
     if ($_.InvocationInfo.ScriptLineNumber) { $msg += "`nСтрока $($_.InvocationInfo.ScriptLineNumber): $($_.InvocationInfo.Line.Trim())" }
     Write-Host ''; Write-Host $msg -ForegroundColor Red
     try { Write-Log "ОШИБКА: $($_ | Out-String)" } catch {}
+    # Прибраться перед выходом: выгрузить профиль по умолчанию (если был загружен для «режима передачи»)
+    # и вернуть разрешение сна. Всё в try/catch: на раннем этапе функций и типов может ещё не быть.
+    try { if (Get-Command Dismount-DefaultUserHive -ErrorAction SilentlyContinue) { Dismount-DefaultUserHive } } catch {}
+    try { if ('SleepBlock' -as [type]) { [void][SleepBlock]::SetThreadExecutionState([uint32]2147483648) } } catch {}
     # Если GUI уже загружен (консоль может быть скрыта) — показываем ошибку окном, иначе ждём Enter в консоли
     if ('System.Windows.Forms.MessageBox' -as [type]) {
         try { [System.Windows.Forms.MessageBox]::Show("$msg`n`nСфотографируйте это окно и пришлите.", 'WinUP — ошибка', 'OK', 'Error') | Out-Null } catch {}
@@ -152,13 +156,6 @@ $DefaultApps = @(
     @{ Name = 'VLC';           Match = 'VLC';        Types = @('.mp4', '.mkv', '.avi', '.mov', '.wmv', '.webm', '.flv', '.mp3', '.flac', '.wav', '.m4a', '.ogg') }
     @{ Name = 'WinRAR';        Match = 'WinRAR';     Types = @('.zip', '.rar', '.7z', '.tar', '.gz') }
 )
-
-# --- Автообновление скрипта с GitHub ---
-# При запуске с интернетом скрипт проверяет, нет ли новой версии, и спрашивает, скачать ли её.
-# Репозиторий приватный: положите токен GitHub (только чтение) в файл system\update-token.txt.
-$CheckUpdates = $false   # публичный релиз: версии берутся из GitHub Releases, не автообновлением
-$UpdateRepo   = 'Disotero/-'
-$UpdateBranch = 'main'
 
 # Порядок важен: сначала библиотеки, от которых зависят другие программы, потом архиваторы
 # (7-Zip нужен для распаковки драйвера NVIDIA), потом всё остальное.
@@ -358,8 +355,9 @@ function Write-Step([string]$Title) {
     Write-Host '   не выключайте компьютер' -ForegroundColor DarkYellow
     Write-Log ''
     Write-Log "===== $Title ====="
-    # Процент — по «весу» уже пройденных шагов, а не по их числу (длинные шаги весят больше)
-    $pct = 0
+    # Процент — по «весу» уже пройденных шагов, а не по их числу (длинные шаги весят больше).
+    # На шаге «ИТОГ» показываем 100%: раньше полоса прогресса в конце сбрасывалась в ноль.
+    $pct = 100
     if ($n -and $script:TotalWeight) {
         $pct = [int](100 * $script:DoneWeight / $script:TotalWeight)
         $w = if ($script:StepWeights -and $n -le $script:StepWeights.Count) { $script:StepWeights[$n - 1] } else { 1 }
@@ -503,6 +501,14 @@ function Wait-Task($Task, [int]$TimeoutSec = 0, [string[]]$KillNames = @()) {
                 try { $Task.Proc.Kill() } catch {}
                 if ($KillNames) { Get-Process -Name $KillNames -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
             }
+            # Если программа игнорирует принудительное закрытие ещё 30 секунд — не зависаем:
+            # выходим ошибкой, вызывающий код пометит шаг как FAIL
+            if ($Task.Timer.Elapsed.TotalSeconds -gt ($TimeoutSec + 30)) {
+                Write-Log "  «$($Task.Name)»: не закрывается, перестаю ждать"
+                Clear-Spinner
+                [void]$script:BgTasks.Remove($Task)
+                throw "программа «$($Task.Name)» не закрылась после таймаута"
+            }
             Show-Spinner $Task $frame
             $frame++
             Start-Sleep -Milliseconds 250
@@ -543,8 +549,15 @@ function Wait-Task($Task, [int]$TimeoutSec = 0, [string[]]$KillNames = @()) {
 #  Две-три попытки с паузой почти всегда доводят дело до конца.
 # ---------------------------------------------------------------------------
 # Коды winget/установщиков, означающие проблему сети (а не «пакет плохой»):
-#   0x80072EE2 таймаут, 0x80072EE7 нет имени, 0x80072EFD/EFE обрыв, 0x8A150044 сбой скачивания winget
-$NetworkErrorCodes = @(-2147012894, -2147012889, -2147012867, -2147012866, -1978334972, -1978335230)
+#   0x80072EE2 таймаут, 0x80072EE7 нет имени (DNS), 0x80072EFD/EFE обрыв соединения
+#   winget: 0x8A150008 не удалось скачать, 0x8A150107 нет сети, 0x8A15006B не скачались зависимости,
+#           0x8A15006D служба занята (повторить позже), 0x8A150102 другая установка уже идёт
+# (примечание: 0x8A150104 «нет зависимости» и 0x8A150002 «неверные аргументы» раньше попадали
+#  в этот список ошибочно — повторы при них не помогают и маскируют настоящую причину)
+$NetworkErrorCodes = @(
+    -2147012894, -2147012889, -2147012867, -2147012866,   # HTTP/WinHTTP
+    -1978335224, -1978334969, -1978335125, -1978335123, -1978334974
+)
 
 # Выполнить веб-действие с повторами. $Action — scriptblock; при исключении ждём и пробуем снова.
 function Invoke-WithRetry([scriptblock]$Action, [int]$Tries = 3, [int]$DelaySec = 4, [string]$What = '') {
@@ -616,14 +629,23 @@ function Install-WingetApp([string]$Id, [string]$Name, [string[]]$Extra = @(), [
     $out = Join-Path $env:TEMP ('winget-' + ($Id -replace '[^\w.-]', '_') + '.log')
     $wargs = @('install', '--id', $Id, '-e', '--source', 'winget', '--silent',
               '--accept-package-agreements', '--accept-source-agreements') + $Extra
-    # До 3 попыток, если обрыв сети (по коду возврата winget)
+    # До 3 попыток, если обрыв сети (по коду возврата winget).
+    # Сбой запуска winget не должен ронять всю настройку: это просто ещё одна
+    # неудачная установка — её предложат повторить в конце, как и остальные.
     $code = 0
-    for ($try = 1; $try -le 3; $try++) {
-        $code = Wait-Task (Start-ProcessTask $Name "$Name — $verb$(if ($try -gt 1) { " (попытка $try)" })" $script:WingetExe $wargs $out)
-        Write-Log "winget install $Id -> $code (попытка $try)"
-        if ($code -notin $NetworkErrorCodes -or $try -eq 3) { break }
-        Write-Log "  похоже на обрыв сети, жду и пробую снова"
-        Start-Sleep -Seconds (4 * $try)
+    try {
+        for ($try = 1; $try -le 3; $try++) {
+            $code = Wait-Task (Start-ProcessTask $Name "$Name — $verb$(if ($try -gt 1) { " (попытка $try)" })" $script:WingetExe $wargs $out)
+            Write-Log "winget install $Id -> $code (попытка $try)"
+            if ($code -notin $NetworkErrorCodes -or $try -eq 3) { break }
+            Write-Log "  похоже на обрыв сети, жду и пробую снова"
+            Start-Sleep -Seconds (4 * $try)
+        }
+    } catch {
+        Write-Log "winget install ${Id}: не удалось запустить — $($_.Exception.Message)"
+        Report FAIL "$Name — ошибка установки" $_
+        $script:FailedInstalls.Add(@{ Kind = 'winget'; Id = $Id; Name = $Name; AllowReinstall = [bool]$AllowReinstall })
+        return
     }
     Write-Log-Clean $out
 
@@ -649,10 +671,12 @@ function Uninstall-WingetApp([string]$Id, [string]$Name) {
         $code = Wait-Task (Start-ProcessTask $Name "$Name — удаляется" $script:WingetExe @(
             'uninstall', '--id', $Id, '-e', '--silent', '--disable-interactivity', '--accept-source-agreements') $out)
     } catch { Write-Log "winget uninstall ${Id}: $($_.Exception.Message)" }
-    $code = [int]$code   # без каста форматирование «0x{0:X8}» падает, если код пустой
+    # Если winget вообще не запустился, $code пустой. Раньше [int]$null = 0 давало
+    # ложное «удалён» — теперь это честный WARN, а код приводим к int только для формата.
     Write-Log "winget uninstall $Id -> $code"
-    if ($code -eq 0) { Report OK "$Name — удалён" }
-    else { Report WARN "$Name — не удалось удалить (осталась на ПК)" ("код 0x{0:X8}" -f $code) }
+    if ($null -eq $code) { Report WARN "$Name — не удалось удалить (осталась на ПК)" 'winget не запустился; подробности в логе' }
+    elseif ($code -eq 0) { Report OK "$Name — удалён" }
+    else { Report WARN "$Name — не удалось удалить (осталась на ПК)" ("код 0x{0:X8}" -f [int]$code) }
 }
 
 # ---------------------------------------------------------------------------
@@ -750,7 +774,7 @@ function Install-OfflineApp([string]$Id, [string]$Name, [switch]$AllowReinstall,
             if ($ForTest) { $script:TestInstalled.Add(@{ Id = $Id; Name = ($Name -split ' \(')[0]; Folder = $dest }) }
             return
         }
-        if ($pkg.Type -in 'msix', 'appx' -or $f -match '\.(msix|appx)(bundle)?$') {
+        if (($pkg.Type -in 'msix', 'appx') -or ($f -match '\.(msix|appx)(bundle)?$')) {
             Wait-Task (Start-ScriptTask $Name "$Name — устанавливается" {
                 param($P) Add-AppxProvisionedPackage -Online -PackagePath $P -SkipLicense | Out-Null
             } @($f)) | Out-Null
@@ -889,6 +913,17 @@ $display
 "@
 }
 
+# Установлен ли Office: по exe-файлу любого приложения из $OfficeApps, а не только по Word —
+# Word может быть исключён из набора, и тогда WINWORD.EXE не появится
+$script:OfficeExe = @{ Word = 'WINWORD.EXE'; Excel = 'EXCEL.EXE'; PowerPoint = 'POWERPNT.EXE'
+                       Outlook = 'OUTLOOK.EXE'; OneNote = 'ONENOTE.EXE'; Access = 'MSACCESS.EXE'; Publisher = 'MSPUB.EXE' }
+function Test-OfficeInstalled {
+    $root = "$env:ProgramFiles\Microsoft Office\root\Office16"
+    if (-not (Test-Path $root)) { return $false }
+    return [bool](@($OfficeApps | ForEach-Object { $script:OfficeExe[$_] } |
+        Where-Object { $_ -and (Test-Path (Join-Path $root $_)) }))
+}
+
 # Установка Office из заранее подготовленного установщика (ставится ПОСЛЕ программ, по очереди).
 # При ошибке 1603 и других — дописывает в лог журнал установщика Office (ODT).
 function Invoke-OfficeInstall {
@@ -897,7 +932,7 @@ function Invoke-OfficeInstall {
         $code = Wait-Task (Start-ProcessTask 'Office' "Microsoft Office ($($OfficeApps -join ', ')) — $(if ($script:OfficeAgain) { 'переустанавливается' } else { 'устанавливается' })" `
             $script:OfficeOdt @('/configure', "`"$($script:OfficeCfg)`""))
         Write-Log "Office /configure -> $code"
-        if ($code -eq 0 -and (Test-Path $OfficeWord)) {
+        if ($code -eq 0 -and (Test-OfficeInstalled)) {
             Report OK "Microsoft Office — $(if ($script:OfficeAgain) { 'переустановлен' } else { 'установлен' })" 'при первом запуске войдите в учётную запись Microsoft с лицензией'
             $script:OfficeReady = $false
             return
@@ -949,7 +984,9 @@ function Get-RamInfo {
             SizeGB     = [Math]::Round($_.Capacity / 1GB)
             Maker      = "$($_.Manufacturer)".Trim()
             Part       = "$($_.PartNumber)".Trim()
-            Configured = [int]$_.ConfiguredClockSpeed
+            # На части плат с DDR5 WMI отдаёт ConfiguredClockSpeed = 0 — тогда берём SPD-частоту,
+            # чтобы не пугать пользователя «память работает на 0 МГц»
+            Configured = if ($_.ConfiguredClockSpeed) { [int]$_.ConfiguredClockSpeed } else { [int]$_.Speed }
             Rated      = Get-RatedRamSpeed $_.PartNumber ([int]$_.Speed)
             Type       = switch ([int]$_.SMBIOSMemoryType) { 26 { 'DDR4' } 34 { 'DDR5' } 24 { 'DDR3' } default { '' } }
         }
@@ -1310,77 +1347,6 @@ function New-ReportBundle {
 }
 
 # ---------------------------------------------------------------------------
-#  Автообновление скрипта
-# ---------------------------------------------------------------------------
-# Файлы программы в папке с .bat (в том числе из прошлых версий) — их можно заменять при обновлении.
-# Всё, чего нет в этом списке и в новой версии, не трогается.
-$OwnRootFiles = @('Настройка Windows.bat', 'Перенос данных.bat',
-                  'run.bat', 'Установщик офлайн.bat', 'win11-setup.ps1', 'data-transfer.ps1', 'README.md', 'version.txt')
-# В папке system не трогаются: офлайн-папка, логи и токен
-$KeepInSystem = @('offline', 'logs', 'update-token.txt')
-
-function Invoke-SelfUpdate {
-    if (-not $CheckUpdates) { return }
-    $verFile = Join-Path $PSScriptRoot 'version.txt'
-    $local = if (Test-Path $verFile) { (Get-Content $verFile -TotalCount 1).Trim() } else { '0' }
-    $tokenFile = Join-Path $PSScriptRoot 'update-token.txt'
-    $headers = @{ 'User-Agent' = 'win11-setup' }
-    if (Test-Path $tokenFile) { $headers.Authorization = 'token ' + (Get-Content $tokenFile -TotalCount 1).Trim() }
-
-    Write-Host 'Проверяю, нет ли новой версии скрипта...' -ForegroundColor DarkGray
-    try {
-        $remote = "$((Invoke-WebRequest -UseBasicParsing -TimeoutSec 6 -Headers $headers `
-            -Uri "https://api.github.com/repos/$UpdateRepo/contents/windows-setup/version.txt?ref=$UpdateBranch").Content | ConvertFrom-Json | ForEach-Object {
-                [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_.content)) })".Trim()
-    } catch {
-        Write-Host '       Проверка обновлений пропущена (нет интернета или доступа к GitHub)' -ForegroundColor DarkGray
-        return
-    }
-    $isNewer = try { [version]$remote -gt [version]$local } catch { $remote -ne $local }
-    if (-not $isNewer) { Write-Host "       Версия $local — последняя" -ForegroundColor DarkGray; return }
-
-    Add-Type -AssemblyName System.Windows.Forms
-    $a = [Windows.Forms.MessageBox]::Show("Найдена новая версия скрипта: $remote (у вас $local).`n`nСкачать и заменить старые файлы?`nПапка offline, логи и паспорта ПК не тронутся.",
-        'Обновление', 'YesNo', 'Question')
-    if ($a -ne [Windows.Forms.DialogResult]::Yes) { return }
-
-    try {
-        $zip = Join-Path $env:TEMP 'win11-setup-update.zip'
-        $dir = Join-Path $env:TEMP 'win11-setup-update'
-        Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Host '       Скачиваю новую версию...' -ForegroundColor DarkGray
-        Invoke-WebRequest -UseBasicParsing -Headers $headers -OutFile $zip `
-            -Uri "https://api.github.com/repos/$UpdateRepo/zipball/$UpdateBranch"
-        Expand-Archive -Path $zip -DestinationPath $dir -Force
-        $new = Get-ChildItem $dir -Recurse -Directory -Filter 'windows-setup' | Select-Object -First 1
-        if (-not $new -or -not (Test-Path (Join-Path $new.FullName 'win11-setup.ps1'))) { throw 'в архиве нет windows-setup\win11-setup.ps1' }
-
-        # Заменяем файлы программы: удаляем только её собственные файлы (из новой версии и известные старые).
-        # Чужие файлы рядом, офлайн-папка, логи и токен не трогаются.
-        $rootOwn = @(Get-ChildItem $new.FullName -File -Force | ForEach-Object { $_.Name }) + $OwnRootFiles | Select-Object -Unique
-        foreach ($n in $rootOwn) {
-            $t = Join-Path $AppRoot $n
-            if (Test-Path -LiteralPath $t) { Remove-Item -LiteralPath $t -Force }
-        }
-        $newSys = Join-Path $new.FullName 'system'
-        if (Test-Path $newSys) {
-            foreach ($i in Get-ChildItem $PSScriptRoot -Force | Where-Object { $_.Name -notin $KeepInSystem }) {
-                # в system удаляем только то, что есть в новой версии, либо файлы самой программы
-                if ((Test-Path -LiteralPath (Join-Path $newSys $i.Name)) -or $i.Name -in $OwnRootFiles) { Remove-Item -LiteralPath $i.FullName -Recurse -Force }
-            }
-        }
-        Copy-Item (Join-Path $new.FullName '*') $AppRoot -Recurse -Force
-        Write-Host "       Обновлено до версии $remote. Перезапускаю..." -ForegroundColor Green
-        $args2 = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$(Join-Path $AppRoot 'system\win11-setup.ps1')`"")
-        if ($PrepareOffline) { $args2 += '-PrepareOffline' }
-        Start-Process powershell.exe -ArgumentList $args2
-        exit 0
-    } catch {
-        Write-Host "       Обновить не удалось: $($_.Exception.Message). Продолжаю со старой версией." -ForegroundColor Yellow
-    }
-}
-
-# ---------------------------------------------------------------------------
 #  Реестр профиля «по умолчанию» (для новых пользователей в режиме передачи ПК)
 #  Пока он загружен, все настройки HKCU записываются ещё и туда.
 # ---------------------------------------------------------------------------
@@ -1523,8 +1489,6 @@ if (-not $isAdmin) {
     }
     exit
 }
-
-Invoke-SelfUpdate
 
 $os = Get-CimInstance Win32_OperatingSystem
 $IsWin11 = [int]$os.BuildNumber -ge 22000
@@ -2221,7 +2185,7 @@ if (-not $Offline) {
         Start-Service w32time -ErrorAction SilentlyContinue
         Invoke-Quiet "$env:SystemRoot\System32\w32tm.exe" /resync /force | Out-Null
         if ($LASTEXITCODE -eq 0) { Report OK 'Часы синхронизированы с интернетом' 'сделано в начале, чтобы время в логе было верным' }
-        else { Write-Log 'Ранняя синхронизация времени: w32tm вернул код '"$LASTEXITCODE" }
+        else { Write-Log "Ранняя синхронизация времени: w32tm вернул код $LASTEXITCODE" }
     } catch { Write-Log "Ранняя синхронизация времени: $($_.Exception.Message)" }
 }
 
@@ -2306,15 +2270,14 @@ if ($DoGpuDriver) {
 # Раньше Office ставился в фоне параллельно с программами. Одновременная установка
 # роняла его с ошибкой 1603, поэтому теперь он ставится ПОСЛЕ программ, по очереди.
 # Здесь только заранее скачиваем установщик (это можно делать параллельно — сеть не мешает).
-$OfficeWord = "$env:ProgramFiles\Microsoft Office\root\Office16\WINWORD.EXE"
 $script:OfficeReady = $false     # установщик готов, ставить будем после программ
 $script:OfficeAgain = $false
 $script:OfficeOdt   = $null
 $script:OfficeCfg   = $null
 
 if ($DoInstallOffice) {
-    $script:OfficeAgain = (Test-Path $OfficeWord) -and $script:Reinstall
-    if ((Test-Path $OfficeWord) -and -not $script:OfficeAgain) {
+    $script:OfficeAgain = (Test-OfficeInstalled) -and $script:Reinstall
+    if ((Test-OfficeInstalled) -and -not $script:OfficeAgain) {
         Report SKIP 'Microsoft Office — уже установлен'
     } else {
         try {
@@ -3551,8 +3514,14 @@ if ($DoOptimize) {
             $dism = @('/Online', '/Cleanup-Image', '/StartComponentCleanup', '/Quiet')
             if ($Opt.ResetBase) { $dism = @('/Online', '/Cleanup-Image', '/StartComponentCleanup', '/ResetBase', '/Quiet') }
             & "$env:SystemRoot\System32\Dism.exe" @dism 2>&1 | Out-Null
+            # DISM с /Quiet молчит, но код возврата есть — сохраняем для отчёта
+            $Status.DismCode = $LASTEXITCODE
         } $argList
-        try { Wait-Task $t | Out-Null } catch {}
+        $dismCode = $null
+        try { Wait-Task $t | Out-Null; $dismCode = $t.Status.DismCode } catch {}
+        if ($null -ne $dismCode -and $dismCode -notin 0, 3010) {
+            Report WARN 'Сжатие WinSxS завершилось с замечаниями' "код $dismCode; очистка файлов всё равно выполнена"
+        }
         $after = (Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$env:SystemDrive'").FreeSpace
         # int64 до вычитания: FreeSpace — UInt64, в Int32 не влезает и может «обернуться»
         $freed = [int64]$after - [int64]$before
@@ -3701,6 +3670,15 @@ if ($retryable.Count -and -not $Offline) {
         $fail = @($Results | Where-Object Status -eq 'FAIL')
     }
 }
+
+# --- Уборка: скачанные установщики больше не нужны (драйвер NVIDIA ~700 МБ,
+#     AMD и офисный установщик лежат в C:\Windows\Temp\win11-setup и копятся между запусками).
+#     Файлы офлайн-папки (если работали без интернета) не трогаем.
+foreach ($f in @($NvidiaExe, $AmdExe)) {
+    if ($f -and (Test-Path $f) -and ($f -notlike "$OfflineDir*")) { Remove-Item $f -Force -ErrorAction SilentlyContinue }
+}
+$officeTmp = Join-Path $env:TEMP 'office-setup'
+if (Test-Path $officeTmp) { Remove-Item $officeTmp -Recurse -Force -ErrorAction SilentlyContinue }
 
 if ($script:PassportFile) {
     Write-Host ''

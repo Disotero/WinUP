@@ -42,9 +42,9 @@ jobs:
           $sys  = "$root/system"
           $pv   = "${{ steps.ver.outputs.version }}.0"
           Invoke-ps2exe -inputFile "$sys/launcher-setup.ps1"    -outputFile "$root/Настройка Windows.exe" `
-              -iconFile "$sys/icon.ico"    -requireAdmin -noConsole -title 'WinUP'          -company 'DISOTERO' -product 'WinUP' -version $pv
+              -iconFile "$sys/icon.ico"    -requireAdmin -noConsole -noOutput -noError -title 'WinUP'          -company 'DISOTERO' -product 'WinUP' -version $pv
           Invoke-ps2exe -inputFile "$sys/launcher-transfer.ps1" -outputFile "$root/Перенос данных.exe" `
-              -iconFile "$sys/icon-db.ico" -requireAdmin -noConsole -title 'Перенос данных' -company 'DISOTERO' -product 'WinUP' -version $pv
+              -iconFile "$sys/icon-db.ico" -requireAdmin -noConsole -noOutput -noError -title 'Перенос данных' -company 'DISOTERO' -product 'WinUP' -version $pv
           if (-not (Test-Path "$root/Настройка Windows.exe")) { throw "Настройка Windows.exe не собрался" }
           if (-not (Test-Path "$root/Перенос данных.exe"))    { throw "Перенос данных.exe не собрался" }
 
