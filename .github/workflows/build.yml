@@ -49,18 +49,24 @@ jobs:
           if (-not (Test-Path "$root/Настройка Windows.exe")) { throw "Настройка Windows.exe не собрался" }
           if (-not (Test-Path "$root/Перенос данных.exe"))    { throw "Перенос данных.exe не собрался" }
 
+      - name: Упаковать архив (весь каталог)
+        shell: pwsh
+        run: |
+          # Лаунчеры (.exe/.bat) ищут system\*.ps1 рядом с собой, поэтому в релиз кладём ВЕСЬ
+          # каталог windows-setup (.bat + .exe + system\), а не голые .exe — иначе «Не найден файл».
+          Compress-Archive -Path "${{ steps.ver.outputs.dir }}" -DestinationPath "WinUP-${{ steps.ver.outputs.version }}.zip" -Force
+
       - name: Артефакт сборки
         uses: actions/upload-artifact@v4
         with:
-          name: WinUP-exe
-          path: |
-            ${{ steps.ver.outputs.dir }}/Настройка Windows.exe
-            ${{ steps.ver.outputs.dir }}/Перенос данных.exe
+          name: WinUP-${{ steps.ver.outputs.version }}
+          path: WinUP-${{ steps.ver.outputs.version }}.zip
 
       - name: Выложить в Releases (по тегу)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            WinUP-${{ steps.ver.outputs.version }}.zip
             ${{ steps.ver.outputs.dir }}/Настройка Windows.exe
             ${{ steps.ver.outputs.dir }}/Перенос данных.exe
