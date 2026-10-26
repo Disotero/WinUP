@@ -3586,10 +3586,15 @@ if ($ClientMode) {
             Set-Content -Path $prep -Encoding UTF8 -Value @'
 $sp = "$env:SystemRoot\System32\Sysprep\sysprep.exe"
 $p = Start-Process $sp -ArgumentList '/oobe', '/shutdown', '/quiet' -Wait -PassThru
-Start-Sleep -Seconds 20
-Add-Type -AssemblyName System.Windows.Forms
-[Windows.Forms.MessageBox]::Show("Не удалось подготовить компьютер к передаче (код $($p.ExitCode)).`n`nПодробности: $env:SystemRoot\System32\Sysprep\Panther\setuperr.log",
-    'Подготовка к передаче', 'OK', 'Error') | Out-Null
+# При успехе sysprep выходит с кодом 0 и сам выключает ПК. Окно об ошибке показываем
+# только при ненулевом коде — иначе пользователь видел пугающую ложную «ошибку»
+# (а то и во время выключения).
+if ($p.ExitCode -ne 0) {
+    Start-Sleep -Seconds 20
+    Add-Type -AssemblyName System.Windows.Forms
+    [Windows.Forms.MessageBox]::Show("Не удалось подготовить компьютер к передаче (код $($p.ExitCode)).`n`nПодробности: $env:SystemRoot\System32\Sysprep\Panther\setuperr.log",
+        'Подготовка к передаче', 'OK', 'Error') | Out-Null
+}
 '@
             Set-Reg 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' 'W11SetupClientPrep' `
                 "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$prep`"" 'String'
