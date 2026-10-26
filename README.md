@@ -1,4 +1,4 @@
-# <img width="34" height="34" alt="WinUP" src="0.1.0/windows-setup/system/icon.png">  WinUP
+# <img width="34" height="34" alt="WinUP" src="https://raw.githubusercontent.com/Disotero/WinUP/main/0.1.0/windows-setup/system/icon.png">  WinUP
 
 
 **Автоматическая настройка чистой Windows 11 — в одном окне.**
