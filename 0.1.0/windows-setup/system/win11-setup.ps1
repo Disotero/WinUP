@@ -3436,10 +3436,24 @@ if ($DoOptimize) {
     if ($OptOptions.OneDriveRemove) {
         try {
             Get-Process -Name OneDrive -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-            foreach ($ex in "$env:SystemRoot\System32\OneDriveSetup.exe", "$env:SystemRoot\SysWOW64\OneDriveSetup.exe") {
+            Start-Sleep -Milliseconds 500
+            # На Windows 11 OneDrive ставится per-user, а не в System32/SysWOW64 (там его обычно нет).
+            # Пробуем все места, включая установщик в профиле (в т.ч. в подпапке версии).
+            $setups = @(
+                "$env:SystemRoot\System32\OneDriveSetup.exe",
+                "$env:SystemRoot\SysWOW64\OneDriveSetup.exe",
+                "$env:LOCALAPPDATA\Microsoft\OneDrive\OneDriveSetup.exe"
+            ) + @(Get-ChildItem "$env:LOCALAPPDATA\Microsoft\OneDrive\*\OneDriveSetup.exe" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+            foreach ($ex in ($setups | Select-Object -Unique)) {
                 if (Test-Path $ex) { Start-Process $ex -ArgumentList '/uninstall' -Wait -ErrorAction SilentlyContinue }
             }
-            Report OK 'OneDrive удалён'
+            Start-Sleep -Seconds 1
+            # Проверяем результат, а не рапортуем успех вслепую: процесс не запущен И в профиле
+            # не осталось OneDrive.exe. Раньше шаг всегда писал «удалён», хотя только убивал процесс.
+            $stillRunning = [bool](Get-Process -Name OneDrive -ErrorAction SilentlyContinue)
+            $stillThere   = Test-Path "$env:LOCALAPPDATA\Microsoft\OneDrive\OneDrive.exe"
+            if (-not $stillRunning -and -not $stillThere) { Report OK 'OneDrive удалён' }
+            else { Report WARN 'OneDrive удалить не удалось полностью' 'удалите вручную: «Параметры → Приложения → OneDrive»' }
         } catch { Report FAIL 'OneDrive удалить не удалось' $_.Exception.Message }
     }
 
