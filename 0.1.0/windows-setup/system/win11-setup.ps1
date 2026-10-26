@@ -2255,9 +2255,16 @@ $script:GpuJobs = @()
 if ($DoGpuDriver) {
     # Только реальные видеокарты NVIDIA / AMD / Intel (виртуальные адаптеры пропускаются)
     $gpus = @(Get-CimInstance Win32_VideoController | Where-Object { $_.PNPDeviceID -match 'VEN_(10DE|1002|8086)' })
+    $vendorSeen = @{}   # NVIDIA/AMD: драйвер один на вендора — качаем и ставим один раз
     foreach ($gpu in $gpus) {
         $vendor = switch -Regex ($gpu.PNPDeviceID) { 'VEN_10DE' { 'NVIDIA' } 'VEN_1002' { 'AMD' } 'VEN_8086' { 'Intel' } }
         Write-Host "       Видеокарта: $($gpu.Name) (драйвер $($gpu.DriverVersion))" -ForegroundColor DarkGray
+        # Второй адаптер того же вендора (NVIDIA/AMD) использует тот же драйвер. Раньше две
+        # фоновые загрузки писали в один и тот же файл ($NvidiaExe/$AmdExe) — порча/«занят».
+        if ($vendor -in 'NVIDIA', 'AMD' -and $vendorSeen.ContainsKey($vendor)) {
+            Write-Host "       (ещё один $vendor — драйвер общий, повторно не качаю)" -ForegroundColor DarkGray
+            continue
+        }
         $task = $null
 
         if ($Offline) {
@@ -2290,6 +2297,7 @@ if ($DoGpuDriver) {
         }
 
         if ($task) { $script:BgTasks.Add($task) }
+        if ($vendor -in 'NVIDIA', 'AMD') { $vendorSeen[$vendor] = $true }
         $script:GpuJobs += [pscustomobject]@{ Gpu = $gpu; Vendor = $vendor; Task = $task }
     }
     if (-not $gpus) { Report SKIP 'Видеокарта NVIDIA/AMD/Intel не найдена' }
