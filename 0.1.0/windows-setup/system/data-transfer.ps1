@@ -524,7 +524,10 @@ $OpsCode = {
                 if ($c.Path -like "$($Drive.TrimEnd('\'))*") { Say 'SKIP' "$($c.Name) — уже на диске $Drive"; continue }
                 if ($c.Path -match 'OneDrive') { Say 'SKIP' "$($c.Name) — в OneDrive, не трогаю"; continue }
                 New-Item -ItemType Directory -Path $to -Force | Out-Null
-                if (-not (Copy-Tree $c.Path $to)) { Say 'FAIL' "$($c.Name) — не все файлы скопировались, папка не перенесена"; continue }
+                # -NoExcludes: перенос обязан быть полным. С общими исключениями (Cache, Temp,
+                # node_modules, *.tmp…) часть файлов не копировалась, а старая папка ниже удаляется
+                # целиком — так пропущенные копией файлы терялись безвозвратно.
+                if (-not (Copy-Tree $c.Path $to -NoExcludes)) { Say 'FAIL' "$($c.Name) — не все файлы скопировались, папка не перенесена"; continue }
                 $g = [Guid]$ids[$c.Key]
                 $hr = [KnownFolders]::SHSetKnownFolderPath([ref]$g, 0, [IntPtr]::Zero, $to)
                 if ($hr -ne 0) { Say 'FAIL' ("$($c.Name) — Windows не приняла новый путь (0x{0:X8}), файлы скопированы в $to" -f $hr); continue }
