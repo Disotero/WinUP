@@ -1234,8 +1234,11 @@ function Write-Passport {
         "<tr><td>$(& $h $_.Name)</td><td>$(& $h $_.DriverVersion)</td><td>$(& $h "$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution) $($_.CurrentRefreshRate) Гц")</td></tr>"
     }) -join "`n"
     $ramRows = ($ram | ForEach-Object {
-        $st = if ($_.Rated -gt $_.Configured * 1.05) { ' class="warn"' } else { '' }
-        "<tr$st><td>$(& $h $_.Slot)</td><td>$($_.SizeGB) ГБ $($_.Type)</td><td>$(& $h "$($_.Maker) $($_.Part)")</td><td>$($_.Configured) / $($_.Rated) МГц</td></tr>"
+        # Если WMI не отдал частоту (ConfiguredClockSpeed и Speed оба 0) — показываем «—», не «0»
+        $cfgTxt   = if ($_.Configured -gt 0) { "$($_.Configured)" } else { '—' }
+        $ratedTxt = if ($_.Rated -gt 0)      { "$($_.Rated)" }      else { '—' }
+        $st = if ($_.Configured -gt 0 -and $_.Rated -gt $_.Configured * 1.05) { ' class="warn"' } else { '' }
+        "<tr$st><td>$(& $h $_.Slot)</td><td>$($_.SizeGB) ГБ $($_.Type)</td><td>$(& $h "$($_.Maker) $($_.Part)")</td><td>$cfgTxt / $ratedTxt МГц</td></tr>"
     }) -join "`n"
     $diskRows = ($disks | Where-Object { $_.Bus -notin 'USB', 'SD', 'MMC' } | ForEach-Object {
         $st = if ($_.Health -ne 'Healthy' -or $_.Errors -gt 0) { ' class="bad"' } elseif ($_.Wear -ge 80) { ' class="warn"' } else { '' }
@@ -2356,7 +2359,11 @@ if ($DoSystemCheck) {
             $cfg   = ($ram | Measure-Object Configured -Minimum).Minimum
             $rated = ($ram | Measure-Object Rated -Maximum).Maximum
             $type  = ($ram | Select-Object -First 1).Type
-            if ($rated -gt $cfg * 1.05) {
+            if ($cfg -le 0) {
+                # Некоторые платы (чаще с DDR5) не отдают частоту через WMI (и Configured, и Speed = 0).
+                # Не пишем вводящее в заблуждение «0 МГц» — честно сообщаем, что определить не вышло.
+                Report WARN 'Частоту памяти определить не удалось (ограничение WMI)' "память: $total ГБ $type"
+            } elseif ($rated -gt $cfg * 1.05) {
                 Report WARN "Память работает на $cfg МГц, а рассчитана на $rated МГц" 'включите в BIOS профиль XMP (Intel) или EXPO/DOCP (AMD)'
                 Add-Manual "Память работает на $cfg МГц вместо $rated МГц. Зайдите в BIOS (клавиша Del или F2 при включении) и включите профиль XMP (Intel) или EXPO/DOCP (AMD)."
             } else {
