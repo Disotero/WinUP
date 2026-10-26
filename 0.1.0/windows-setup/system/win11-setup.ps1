@@ -287,12 +287,25 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-# Временные файлы — в папку без кириллицы и пробелов (C:\Windows\Temp\win11-setup).
+# Временные файлы — в папку без кириллицы и пробелов (C:\Windows\Temp\win11-setup_XXXXXXXX).
 # Установщики Office, NVIDIA и 7-Zip иногда ломаются, если путь вида C:\Users\Иван\...
 # Меняем TEMP для самого скрипта и всех программ, которые он запускает.
+# Имя со случайным суффиксом: C:\Windows\Temp доступна на запись и обычным пользователям,
+# поэтому папку с ПРЕДСКАЗУЕМЫМ именем они могли бы подготовить заранее (junction на свой
+# каталог или подложенный nvidia-driver.exe с deny-ACE) — elevated-скрипт скачивал бы и
+# запускал payload из неё. Непредсказуемое имя не даёт подменить/перенаправить.
 try {
-    $WorkDir = Join-Path $env:SystemRoot 'Temp\win11-setup'
+    $tempRoot = Join-Path $env:SystemRoot 'Temp'
+    # Подчищаем свои прошлые рабочие папки (в т.ч. осиротевшую от запуска до повышения прав),
+    # чтобы они не копились. rd /s /q — junction-безопасно (удаляет саму ссылку, не её цель).
+    Get-ChildItem $tempRoot -Directory -Filter 'win11-setup*' -ErrorAction SilentlyContinue |
+        ForEach-Object { & "$env:SystemRoot\System32\cmd.exe" /c "rd /s /q `"$($_.FullName)`"" 2>$null | Out-Null }
+    $WorkDir = Join-Path $tempRoot ('win11-setup_' + ([guid]::NewGuid().ToString('N').Substring(0, 8)))
     New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
+    # На всякий случай: свежесозданная папка не должна быть точкой соединения (reparse point)
+    if ((Get-Item -LiteralPath $WorkDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "рабочая папка оказалась точкой соединения — возможна подмена"
+    }
     $env:TEMP = $WorkDir
     $env:TMP  = $WorkDir
 } catch {}
