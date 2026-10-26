@@ -290,6 +290,10 @@ $OpsCode = {
                 $saved = $true
                 if ($c.Kind -eq 'Folder') {
                     if (-not $c.Path -or -not (Test-Path -LiteralPath $c.Path)) { Say 'SKIP' "$($c.Name) — папки нет"; continue }
+                    # Папка перенаправлена в OneDrive: /COPY:DAT читает каждый «только в облаке»
+                    # placeholder и тянет его на (обычно маленькую) флешку — часы «зависания» и
+                    # переполнение. Эти файлы и так в облаке — пропускаем (как в Move-UserFolders).
+                    if ($c.Path -match 'OneDrive') { Say 'SKIP' "$($c.Name) — папка в OneDrive, файлы уже в облаке (на флешку не копирую)"; continue }
                     [void](Copy-Tree $c.Path $dest)
                     Set-State "Проверяю копию: $($c.Name)"
                     $missing = Test-TreeCopy $c.Path $dest
