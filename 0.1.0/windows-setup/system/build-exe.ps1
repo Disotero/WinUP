@@ -20,6 +20,12 @@ $root = Split-Path $here -Parent                           # ...\windows-setup
 $icon   = Join-Path $here 'icon.ico'       # основная иконка
 $iconDb = Join-Path $here 'icon-db.ico'    # иконка переноса данных (база данных)
 
+# Версия .exe — единый источник: system\version.txt (его же использует CI). Формат файла — X.Y.Z,
+# в свойствах .exe — 4 части X.Y.Z.0. Раньше здесь был хардкод 1.0.0, а CI ставил 0.1.0.0 — расходились.
+$verFile = Join-Path $here 'version.txt'
+$ver     = if (Test-Path -LiteralPath $verFile) { (Get-Content -LiteralPath $verFile -TotalCount 1).Trim() } else { '0.0.0' }
+$fileVer = "$ver.0"
+
 if (-not (Test-Path $icon)) { Write-Host "Нет иконки: $icon" -ForegroundColor Red; Read-Host 'Enter'; exit 1 }
 
 Write-Host 'Проверяю модуль PS2EXE...' -ForegroundColor Cyan
@@ -45,7 +51,7 @@ foreach ($t in $targets) {
     try {
         Invoke-ps2exe -inputFile $in -outputFile $out -iconFile $ico `
             -requireAdmin -noConsole -noOutput -noError `
-            -title $t.Title -company 'DISOTERO' -product 'WinUP' -version '1.0.0'
+            -title $t.Title -company 'DISOTERO' -product 'WinUP' -version $fileVer
         if (Test-Path $out) { Write-Host "  готово: $out" -ForegroundColor Green; $ok++ }
         else { Write-Host "  НЕ собралось: $($t.Out)" -ForegroundColor Red }
     } catch { Write-Host "  ошибка: $($_.Exception.Message)" -ForegroundColor Red }

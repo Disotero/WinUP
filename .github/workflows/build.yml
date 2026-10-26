@@ -40,7 +40,8 @@ jobs:
           Import-Module ps2exe
           $root = "${{ steps.ver.outputs.dir }}"
           $sys  = "$root/system"
-          $pv   = "${{ steps.ver.outputs.version }}.0"
+          # Версия .exe — единый источник: system/version.txt (его же читает локальный build-exe.ps1)
+          $pv   = (Get-Content "$sys/version.txt" -TotalCount 1).Trim() + '.0'
           Invoke-ps2exe -inputFile "$sys/launcher-setup.ps1"    -outputFile "$root/Настройка Windows.exe" `
               -iconFile "$sys/icon.ico"    -requireAdmin -noConsole -noOutput -noError -title 'WinUP'          -company 'DISOTERO' -product 'WinUP' -version $pv
           Invoke-ps2exe -inputFile "$sys/launcher-transfer.ps1" -outputFile "$root/Перенос данных.exe" `
