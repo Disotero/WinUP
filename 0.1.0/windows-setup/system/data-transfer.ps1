@@ -178,12 +178,18 @@ $OpsCode = {
 
     # Аргументы robocopy с исключениями: $Skip — дополнительные папки (например, кэш Telegram).
     # $UseExcludes — применять общие исключения (при сохранении — да, при восстановлении не нужно)
-    function Get-RoboArgs([string]$From, [string]$To, [string[]]$Skip, [bool]$UseExcludes) {
-        $a = @("`"$From`"", "`"$To`"", '/E', '/R:1', '/W:1', '/XJ', '/NP', '/NJH', '/NJS')
+    # $Quote: $true — пути в кавычках, для Start-Process -ArgumentList (Copy-Tree);
+    #         $false — сырые строки, для прямого вызова & robocopy. PS 5.1 закавычивает
+    #         аргументы со пробелами сам (ровно один раз); если передать уже закавыченные,
+    #         получается ""путь"" — robocopy разбирает его в мусорный путь + маску, и пробный
+    #         прогон проверки копии (Test-TreeCopy) ничего не находит → ложное «всё проверено».
+    function Get-RoboArgs([string]$From, [string]$To, [string[]]$Skip, [bool]$UseExcludes, [bool]$Quote = $true) {
+        $a = if ($Quote) { @("`"$From`"", "`"$To`"") } else { @($From, $To) }
+        $a += @('/E', '/R:1', '/W:1', '/XJ', '/NP', '/NJH', '/NJS')
         $dirs = @($Skip | Where-Object { $_ })
         if ($UseExcludes) { $dirs += $ExcludeDirs }
-        if ($dirs) { $a += '/XD'; $a += $dirs | ForEach-Object { "`"$_`"" } }
-        if ($UseExcludes -and $ExcludeFiles) { $a += '/XF'; $a += $ExcludeFiles | ForEach-Object { "`"$_`"" } }
+        if ($dirs) { $a += '/XD'; $a += $dirs | ForEach-Object { if ($Quote) { "`"$_`"" } else { $_ } } }
+        if ($UseExcludes -and $ExcludeFiles) { $a += '/XF'; $a += $ExcludeFiles | ForEach-Object { if ($Quote) { "`"$_`"" } else { $_ } } }
         return $a
     }
 
@@ -200,7 +206,8 @@ $OpsCode = {
     # (пробный прогон robocopy без копирования). Возвращает список таких файлов.
     function Test-TreeCopy([string]$From, [string]$To, [string[]]$Skip = @()) {
         # /XX — не учитывать файлы, которые есть только в копии (например, удалённые с ПК после прошлого сохранения)
-        $a = (Get-RoboArgs $From $To $Skip $true) + @('/L', '/XX', '/NDL', '/NC', '/NS', '/FP')
+        # Сырые пути ($Quote=$false): при прямом вызове & robocopy кавычит сам
+        $a = (Get-RoboArgs $From $To $Skip $true $false) + @('/L', '/XX', '/NDL', '/NC', '/NS', '/FP')
         $ErrorActionPreference = 'Continue'
         @(& "$env:SystemRoot\System32\robocopy.exe" @a 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
     }
