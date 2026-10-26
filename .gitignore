@@ -1,7 +1,6 @@
 # Собранные лаунчеры — их собирает system/build-exe.ps1 или CI (выкладываются в Releases)
 **/windows-setup/*.exe
 
-# Офлайн-кэш, логи и токен автообновления
+# Офлайн-кэш и логи
 **/system/offline/
 **/system/logs/
-**/system/update-token.txt
