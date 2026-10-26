@@ -66,7 +66,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            WinUP-${{ steps.ver.outputs.version }}.zip
-            ${{ steps.ver.outputs.dir }}/Настройка Windows.exe
-            ${{ steps.ver.outputs.dir }}/Перенос данных.exe
+          # Только архив: голый .exe без папки system\ не запускается, а GitHub ещё и вырезает
+          # кириллицу из имён ассетов («Настройка Windows.exe» → «Windows.exe»). Всё в zip.
+          files: WinUP-${{ steps.ver.outputs.version }}.zip
