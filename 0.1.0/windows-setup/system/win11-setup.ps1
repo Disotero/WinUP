@@ -1353,15 +1353,29 @@ function New-ReportBundle {
 $script:DefaultHive = $null
 function Mount-DefaultUserHive {
     $dat = "$env:SystemDrive\Users\Default\NTUSER.DAT"
+    # Если улей уже загружен с прошлого (аварийно прерванного) запуска — сначала выгружаем.
+    # Иначе reg load вернёт «уже загружен», $script:DefaultHive не выставится, и все Set-Reg
+    # в режиме передачи тихо перестанут писать в профиль по умолчанию.
+    Invoke-Quiet "$env:SystemRoot\System32\reg.exe" query 'HKU\W11SetupDefault' | Out-Null
+    if ($LASTEXITCODE -eq 0) { Invoke-Quiet "$env:SystemRoot\System32\reg.exe" unload 'HKU\W11SetupDefault' | Out-Null }
     Invoke-Quiet "$env:SystemRoot\System32\reg.exe" load 'HKU\W11SetupDefault' $dat | Out-Null
     if ($LASTEXITCODE -eq 0) { $script:DefaultHive = 'W11SetupDefault' }
     return [bool]$script:DefaultHive
 }
 function Dismount-DefaultUserHive {
     if (-not $script:DefaultHive) { return }
-    $script:DefaultHive = $null
-    [GC]::Collect(); [GC]::WaitForPendingFinalizers(); Start-Sleep -Milliseconds 500
-    Invoke-Quiet "$env:SystemRoot\System32\reg.exe" unload 'HKU\W11SetupDefault' | Out-Null
+    # reg unload не срабатывает, пока открыт хоть один handle улья (скан AV, утёкший
+    # provider-handle). Снимаем ссылки GC и пробуем до 5 раз, проверяя $LASTEXITCODE;
+    # $script:DefaultHive обнуляем ТОЛЬКО после реальной выгрузки — иначе на следующем
+    # запуске улей висит, Mount даёт ошибку, запись в профиль по умолчанию молча не идёт,
+    # а висящий улей мешает sysprep.
+    for ($i = 1; $i -le 5; $i++) {
+        [GC]::Collect(); [GC]::WaitForPendingFinalizers(); Start-Sleep -Milliseconds 500
+        Invoke-Quiet "$env:SystemRoot\System32\reg.exe" unload 'HKU\W11SetupDefault' | Out-Null
+        if ($LASTEXITCODE -eq 0) { $script:DefaultHive = $null; return }
+        Start-Sleep -Seconds 1
+    }
+    Write-Log 'Профиль по умолчанию: не удалось выгрузить улей W11SetupDefault (остаётся загруженным)'
 }
 # HKCU:\... -> тот же путь в профиле по умолчанию
 function Get-DefaultHivePath([string]$Path) {
