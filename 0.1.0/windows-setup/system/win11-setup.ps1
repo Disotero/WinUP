@@ -3457,26 +3457,27 @@ if ($DoOptimize) {
     # --- Опция: старые драйверы в DriverStore (активные оставляем) ---
     if ($OptOptions.OldDrivers) {
         $t = Start-ScriptTask 'драйверы' 'Удаляю старые версии драйверов (активные оставляю)' {
+            # Get-WindowsDriver -Online — объекты CIM, не зависят от языка системы. Текстовый
+            # вывод pnputil /enum-drivers на русской Windows локализован («Имя опубликованного…»),
+            # английские шаблоны ничего не находили → «удалено 0» при реально существующих дублях.
+            try { $drivers = @(Get-WindowsDriver -Online -ErrorAction Stop) } catch { return -1 }
             $removed = 0
-            $out = & "$env:SystemRoot\System32\pnputil.exe" /enum-drivers 2>$null
-            $items = @(); $cur = @{}
-            foreach ($line in $out) {
-                if     ($line -match 'Published Name\s*:\s*(oem\d+\.inf)') { if ($cur.Name) { $items += [pscustomobject]$cur }; $cur = @{ Name = $Matches[1] } }
-                elseif ($line -match 'Original Name\s*:\s*(.+)$')          { $cur.Orig = $Matches[1].Trim() }
-                elseif ($line -match 'Driver Version\s*:\s*(.+)$')         { $cur.Ver  = $Matches[1].Trim() }
-            }
-            if ($cur.Name) { $items += [pscustomobject]$cur }
-            foreach ($g in ($items | Where-Object { $_.Orig } | Group-Object Orig | Where-Object { $_.Count -gt 1 })) {
-                $sorted = $g.Group | Sort-Object { try { [version](($_.Ver -split ' ')[-1]) } catch { [version]'0.0' } } -Descending
+            # Группируем по имени исходного inf (leaf OriginalFileName одинаков у разных версий);
+            # в каждой группе оставляем самую свежую версию, остальные удаляем по oemNN.inf (.Driver).
+            foreach ($g in ($drivers | Where-Object { $_.OriginalFileName } |
+                            Group-Object { Split-Path $_.OriginalFileName -Leaf } |
+                            Where-Object { $_.Count -gt 1 })) {
+                $sorted = $g.Group | Sort-Object { try { [version]$_.Version } catch { [version]'0.0' } } -Descending
                 foreach ($old in ($sorted | Select-Object -Skip 1)) {
-                    & "$env:SystemRoot\System32\pnputil.exe" /delete-driver $old.Name 2>$null | Out-Null
+                    & "$env:SystemRoot\System32\pnputil.exe" /delete-driver $old.Driver 2>$null | Out-Null
                     if ($LASTEXITCODE -eq 0) { $removed++ }
                 }
             }
             $removed
         }
         $n = Wait-Task $t | Select-Object -Last 1
-        Report OK "Старые драйверы удалены: $([int]$n) шт." 'активные версии оставлены'
+        if ([int]$n -lt 0) { Report WARN 'Старые драйверы: не удалось перечислить (ограничение системы)' }
+        else { Report OK "Старые драйверы удалены: $([int]$n) шт." 'активные версии оставлены' }
     }
 
     # --- Очистка файлов (в фоне: мусор, корзина, сжатие WinSxS) ---
