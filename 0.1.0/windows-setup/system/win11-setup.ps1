@@ -3728,7 +3728,11 @@ if ($retryable.Count -and -not $Offline) {
     Write-Host 'Не установились:' -ForegroundColor Red
     foreach ($f in $retryable) { Write-Host "  - $($f.Name)" -ForegroundColor Yellow }
     $failList = ($retryable | ForEach-Object { " - $($_.Name)" }) -join "`n"
-    $ansRetry = [Windows.Forms.MessageBox]::Show("Не установились:`n$failList`n`nПовторить установку только этих программ?", 'WinUP', 'YesNo', 'Warning')
+    $rq = "Не установились:`n$failList`n`nПовторить установку только этих программ?"
+    # Владелец — окно прогресса (оно TopMost и ещё открыто). Без владельца диалог рисуется
+    # ПОД ним, пользователь не видит Да/Нет и думает, что программа зависла.
+    $ansRetry = if ($script:ProgForm) { [Windows.Forms.MessageBox]::Show($script:ProgForm, $rq, 'WinUP', 'YesNo', 'Warning') }
+                else { [Windows.Forms.MessageBox]::Show($rq, 'WinUP', 'YesNo', 'Warning') }
     if ($ansRetry -eq [Windows.Forms.DialogResult]::Yes) {
         # Свежая синхронизация времени и снимок списка (Install-* снова добавит туда неудачи)
         $todo = @($retryable); $script:FailedInstalls.Clear()
