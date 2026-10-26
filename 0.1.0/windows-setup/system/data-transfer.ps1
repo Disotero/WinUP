@@ -653,7 +653,7 @@ $bSave = New-Button $tSave 'Сохранить' 10 320 200
 $bSave.Add_Click({
     $keys = @(for ($i = 0; $i -lt $saveList.Items.Count; $i++) { if ($saveList.GetItemChecked($i)) { $Cats[$i].Key } })
     if (-not $keys) { return }
-    if (-not $saveTarget.Text -or -not (Test-Path $saveTarget.Text)) { [Windows.Forms.MessageBox]::Show($form, 'Выберите, куда сохранить.', 'Перенос данных') | Out-Null; return }
+    if (-not $saveTarget.Text -or -not (Test-Path -LiteralPath $saveTarget.Text)) { [Windows.Forms.MessageBox]::Show($form, 'Выберите, куда сохранить.', 'Перенос данных') | Out-Null; return }
     if ($saveTarget.Text.StartsWith($env:SystemDrive, 'OrdinalIgnoreCase')) {
         if ([Windows.Forms.MessageBox]::Show($form, "Вы сохраняете на системный диск $env:SystemDrive. При переустановке Windows он обычно форматируется. Всё равно продолжить?", 'Перенос данных', 'YesNo', 'Warning') -ne 'Yes') { return }
     }
@@ -675,13 +675,13 @@ $chkApps.Location = '10,252'; $chkApps.AutoSize = $true; $tRest.Controls.Add($ch
 $script:RestRoot = $null; $script:RestKeys = @()
 function Load-Backup([string]$Path) {
     $restList.Items.Clear(); $script:RestRoot = $null; $script:RestKeys = @()
-    if (-not (Test-Path (Join-Path $Path 'manifest.json'))) {
-        $latest = Get-ChildItem $Path -Recurse -Filter 'manifest.json' -Depth 3 -ErrorAction SilentlyContinue | Sort-Object { $_.Directory.Name } -Descending | Select-Object -First 1
+    if (-not (Test-Path -LiteralPath (Join-Path $Path 'manifest.json'))) {
+        $latest = Get-ChildItem -LiteralPath $Path -Recurse -Filter 'manifest.json' -Depth 3 -ErrorAction SilentlyContinue | Sort-Object { $_.Directory.Name } -Descending | Select-Object -First 1
         if (-not $latest) { [Windows.Forms.MessageBox]::Show($form, 'В этой папке нет сохранённых данных.', 'Перенос данных') | Out-Null; return }
         $Path = $latest.DirectoryName
     }
     $restPath.Text = $Path
-    $m = Get-Content (Join-Path $Path 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $m = Get-Content -LiteralPath (Join-Path $Path 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($e in $m.Categories) {
         $c = $Cats | Where-Object { $_.Key -eq $e.Key } | Select-Object -First 1
         [void]$restList.Items.Add($(if ($c) { $c.Name } else { $e.Key }), $true)
