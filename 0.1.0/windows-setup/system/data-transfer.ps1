@@ -465,7 +465,9 @@ $OpsCode = {
     function Find-SteamLibraries {
         $steam = Get-SteamPath
         $found = @()
-        foreach ($d in Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3') {
+        # DriveType 3 — фиксированные, 2 — съёмные (USB HDD/SSD): библиотеки Steam бывают и на них,
+        # а комментарий выше обещает «все диски» (как в Get-DefaultTarget).
+        foreach ($d in Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=2 OR DriveType=3') {
             $roots = @("$($d.DeviceID)\") + @(Get-ChildItem "$($d.DeviceID)\" -Directory -Force -ErrorAction SilentlyContinue |
                 Where-Object { $_.Name -notin 'Windows', '$Recycle.Bin', 'System Volume Information', 'Users', 'ProgramData', 'Recovery' } |
                 ForEach-Object { $_.FullName })
