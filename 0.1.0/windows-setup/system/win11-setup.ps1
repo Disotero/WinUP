@@ -968,9 +968,14 @@ function Invoke-Quiet([string]$Exe) {
 function Get-RatedRamSpeed([string]$Part, [int]$Spd) {
     $p = "$Part".Trim().ToUpper()
     $c = @($Spd)
-    if ($p -match '^(KF|HX)\d(\d{2})C')  { $c += [int]$Matches[2] * 100 }   # Kingston Fury / HyperX: KF432C16 -> 3200
+    # Двузначный код в маркировке — это НЕ код*100: 26=2666, 29=2933, 34=3466, 41=4133, 42=4266…
+    # (нестандартные DDR4-бины). Для чистых бинов (32=3200, 48=4800…) и неизвестных кодов —
+    # fallback код*100. Раньше KF426C16 (2666) превращалось в 2600, HX429C15 (2933) — в 2900.
+    $bins = @{ '26' = 2666; '29' = 2933; '30' = 3000; '32' = 3200; '34' = 3466; '36' = 3600; '37' = 3733; '38' = 3866; '40' = 4000; '41' = 4133; '42' = 4266; '44' = 4400 }
+    $bin = { param($t) if ($bins.ContainsKey($t)) { $bins[$t] } else { [int]$t * 100 } }
+    if ($p -match '^(KF|HX)\d(\d{2})C')  { $c += (& $bin $Matches[2]) }      # Kingston Fury / HyperX: KF432C16 -> 3200, KF426C16 -> 2666
     if ($p -match '^F[45]-(\d{4})')       { $c += [int]$Matches[1] }         # G.Skill: F4-3600C16
-    if ($p -match '^BL\d+G(\d{2})C')      { $c += [int]$Matches[1] * 100 }   # Crucial Ballistix: BL8G32C16 -> 3200
+    if ($p -match '^BL\d+G(\d{2})C')      { $c += (& $bin $Matches[1]) }     # Crucial Ballistix: BL8G26C16 -> 2666
     if ($p -match '(?<!\d)(2133|2400|2666|2933|3000|3200|3466|3600|3733|3866|4000|4266|4400|4800|5200|5600|6000|6200|6400|6800|7200|7600|8000)(?!\d)') {
         $c += [int]$Matches[1]                                               # Corsair CMK16GX4M2B3200C16 и т.п.
     }
