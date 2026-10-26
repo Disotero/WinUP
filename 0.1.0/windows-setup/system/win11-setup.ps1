@@ -3483,15 +3483,23 @@ if ($DoOptimize) {
     if ($DoCleanup) {
         $userTemp = [Environment]::ExpandEnvironmentVariables([Environment]::GetEnvironmentVariable('TEMP', 'User'))
         $paths    = @($userTemp) + @($CleanTargets | ForEach-Object { $_.Path }) + @("$env:LOCALAPPDATA\Microsoft\Windows\Explorer\thumbcache_*.db")
-        $argList  = New-Object object[] 2
+        $argList  = New-Object object[] 3
         $argList[0] = $paths
         $argList[1] = $OptOptions
+        $argList[2] = $WorkDir   # собственную рабочую папку скрипта чистить нельзя (см. ниже)
         $t = Start-ScriptTask 'очистка' 'Удаляю временные и ненужные файлы' {
-            param($Paths, $Opt)
+            param($Paths, $Opt, $WorkDir)
             foreach ($p in $Paths) {
                 if (-not $p) { continue }
                 if ($p -match '\*') { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue }
-                elseif (Test-Path $p) { Get-ChildItem $p -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
+                elseif (Test-Path $p) {
+                    # Не трогаем собственную рабочую папку (C:\Windows\Temp\win11-setup) — она лежит
+                    # внутри C:\Windows\Temp. В ней логи winget, распакованный драйвер и пр., и в неё же
+                    # пишут логи последующие шаги (SFC/DISM): удаление роняло весь прогон.
+                    Get-ChildItem $p -Force -ErrorAction SilentlyContinue |
+                        Where-Object { $_.FullName -ne $WorkDir } |
+                        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+                }
             }
             # Temp всех пользователей
             Get-ChildItem "$env:SystemDrive\Users\*\AppData\Local\Temp" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
@@ -3531,12 +3539,16 @@ if ($DoOptimize) {
 
     # --- Опция: проверка и починка системных файлов ---
     if ($OptOptions.SfcDism) {
-        $Host.UI.RawUI.WindowTitle = 'Проверка системных файлов — это долго, не выключайте'
-        $log  = Join-Path $env:TEMP 'dism-restore.log'
-        $code = Wait-Task (Start-ProcessTask 'dism' 'Проверяю и чиню образ Windows (DISM /RestoreHealth)' "$env:SystemRoot\System32\Dism.exe" @('/Online', '/Cleanup-Image', '/RestoreHealth') $log)
-        if ($code -eq 0) { Report OK 'Образ Windows проверен и исправлен (DISM)' } else { Report WARN 'DISM завершился с замечаниями' "код $code, подробности в логе" }
-        $code2 = Wait-Task (Start-ProcessTask 'sfc' 'Проверяю системные файлы (sfc /scannow)' "$env:SystemRoot\System32\sfc.exe" @('/scannow') (Join-Path $env:TEMP 'sfc.log'))
-        if ($code2 -eq 0) { Report OK 'Системные файлы проверены (sfc)' } else { Report WARN 'sfc нашёл проблемы или не смог всё починить' "код $code2" }
+        # Весь блок в try/catch: один шаг (например, недоступная папка под лог) не должен
+        # ронять весь прогон через глобальный trap — тогда не будет ни паспорта, ни итога.
+        try {
+            $Host.UI.RawUI.WindowTitle = 'Проверка системных файлов — это долго, не выключайте'
+            $log  = Join-Path $env:TEMP 'dism-restore.log'
+            $code = Wait-Task (Start-ProcessTask 'dism' 'Проверяю и чиню образ Windows (DISM /RestoreHealth)' "$env:SystemRoot\System32\Dism.exe" @('/Online', '/Cleanup-Image', '/RestoreHealth') $log)
+            if ($code -eq 0) { Report OK 'Образ Windows проверен и исправлен (DISM)' } else { Report WARN 'DISM завершился с замечаниями' "код $code, подробности в логе" }
+            $code2 = Wait-Task (Start-ProcessTask 'sfc' 'Проверяю системные файлы (sfc /scannow)' "$env:SystemRoot\System32\sfc.exe" @('/scannow') (Join-Path $env:TEMP 'sfc.log'))
+            if ($code2 -eq 0) { Report OK 'Системные файлы проверены (sfc)' } else { Report WARN 'sfc нашёл проблемы или не смог всё починить' "код $code2" }
+        } catch { Report WARN 'Проверка системных файлов не выполнена' $_ }
     }
 }
 
