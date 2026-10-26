@@ -226,6 +226,27 @@ $OpsCode = {
         return $true
     }
 
+    # Удаление содержимого папки БЕЗ захода внутрь junction/символических ссылок.
+    # PS 5.1 Remove-Item -Recurse рекурсирует сквозь reparse point (исправлено только в PS 6.1)
+    # и стирает содержимое ЦЕЛИ ссылки — вне переносимой папки. Здесь точки соединения удаляются
+    # как ссылки (цель не трогаем), в обычные папки заходим рекурсией. Саму $Path не удаляем.
+    function Remove-TreeNoJunction([string]$Path) {
+        foreach ($item in @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)) {
+            try {
+                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                    if ($item.PSIsContainer) { [IO.Directory]::Delete($item.FullName, $false) }
+                    else { [IO.File]::Delete($item.FullName) }
+                } elseif ($item.PSIsContainer) {
+                    Remove-TreeNoJunction $item.FullName
+                    [IO.Directory]::Delete($item.FullName, $false)
+                } else {
+                    if ($item.IsReadOnly) { $item.IsReadOnly = $false }
+                    [IO.File]::Delete($item.FullName)
+                }
+            } catch { }   # остатки в старой папке некритичны: перенос уже состоялся (SHSetKnownFolderPath)
+        }
+    }
+
     function Format-Size($b) { if ($b -ge 1GB) { '{0:N1} ГБ' -f ($b / 1GB) } else { '{0:N0} МБ' -f ($b / 1MB) } }
 
     # ---------------- Сохранение ----------------
@@ -531,8 +552,10 @@ $OpsCode = {
                 $g = [Guid]$ids[$c.Key]
                 $hr = [KnownFolders]::SHSetKnownFolderPath([ref]$g, 0, [IntPtr]::Zero, $to)
                 if ($hr -ne 0) { Say 'FAIL' ("$($c.Name) — Windows не приняла новый путь (0x{0:X8}), файлы скопированы в $to" -f $hr); continue }
-                # Старую папку удаляем только после успешного копирования и переключения
-                Get-ChildItem -LiteralPath $c.Path -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+                # Старую папку чистим только после успешного копирования и переключения.
+                # Через Remove-TreeNoJunction — чтобы Remove-Item не прошёл сквозь junction и
+                # не стёр содержимое цели вне переносимой папки.
+                Remove-TreeNoJunction $c.Path
                 Say 'OK' "$($c.Name) — теперь в $to"
             } catch { Say 'FAIL' "$($c.Name) — ошибка: $($_.Exception.Message)" }
         }
