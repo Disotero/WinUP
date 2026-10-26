@@ -1587,11 +1587,18 @@ if ($PrepareOffline) {
         # Видео и звук не берём: они тяжёлые, а видео ставится отдельно с сайта производителя.
         $n = Wait-Task (Start-ScriptTask 'драйверы' "Выгружаю базовые драйверы этого ПК ($($cs.Manufacturer) $($cs.Model))" {
             param($To, $Classes)
+            # EAP=Continue: runspace по умолчанию Stop, а в PS 5.1 строки stderr от pnputil (2>&1)
+            # при Stop становятся терминирующей ошибкой — один «плохой» драйвер (устаревший
+            # oemXX.inf, блокировка антивирусом) ронял весь экспорт и оставлял офлайн-папку без
+            # сетевых/USB-драйверов. Теперь такой драйвер пропускается, экспорт продолжается.
+            $ErrorActionPreference = 'Continue'
             $count = 0
             foreach ($d in Get-WindowsDriver -Online | Where-Object { $_.ClassName -in $Classes }) {
                 $sub = Join-Path $To ([IO.Path]::GetFileNameWithoutExtension($d.Driver))
-                & "$env:SystemRoot\System32\pnputil.exe" /export-driver $d.Driver $sub 2>&1 | Out-Null
-                if ($LASTEXITCODE -eq 0) { $count++ }
+                try {
+                    & "$env:SystemRoot\System32\pnputil.exe" /export-driver $d.Driver $sub 2>&1 | Out-Null
+                    if ($LASTEXITCODE -eq 0) { $count++ }
+                } catch { }
             }
             $count
         } @($drvDir, $BaseDriverClasses)) | Select-Object -Last 1
