@@ -13,7 +13,7 @@ if (-not $exe) { $exe = [Environment]::GetCommandLineArgs()[0] }
 $dir = Split-Path $exe -Parent
 $ps1 = Join-Path $dir 'system\win11-setup.ps1'
 
-if (-not (Test-Path $ps1)) {
+if (-not (Test-Path -LiteralPath $ps1)) {
     Add-Type -AssemblyName System.Windows.Forms
     [System.Windows.Forms.MessageBox]::Show(
         "Не найден файл:`n$ps1`n`nДержите «Настройка Windows.exe» в папке windows-setup (рядом с папкой system).",
