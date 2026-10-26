@@ -14,6 +14,7 @@
       4. Папки на другой диск — перенести Рабочий стол, Документы, Загрузки и т.д. на D:\,
                           чтобы при следующей переустановке ничего не терялось.
 #>
+param([string]$OrigUser = '')   # кто запустил программу до повышения прав (для проверки профиля)
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
@@ -25,7 +26,9 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
     IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     try {
-        Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`""
+        # Передаём имя текущего (непривилегированного) пользователя: если UAC одобрит ДРУГОЙ
+        # админ, повышенный процесс пойдёт под его профилем — ниже предупредим о несовпадении.
+        Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-OrigUser', "`"$env:USERNAME`""
     } catch {
         Write-Host 'Нужны права администратора: в окне Windows нажмите «Да».' -ForegroundColor Red
         Read-Host 'Нажмите Enter, чтобы закрыть' | Out-Null
@@ -43,6 +46,16 @@ if (-not ('ConHideDT' -as [type])) {
 try { [void][ConHideDT]::ShowWindow([ConHideDT]::GetConsoleWindow(), 0) } catch {}
 
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+
+# Если программу запустил один пользователь, а права дал ДРУГОЙ админ (своими данными для UAC),
+# то все HKCU, Wi-Fi-профили и перенос папок пойдут по профилю админа — это «не тот» человек,
+# и в «бэкап» попали бы чужие данные. Предупреждаем и даём отменить.
+if ($OrigUser -and $OrigUser -ne $env:USERNAME) {
+    $m = "Программу запустил пользователь «$OrigUser», а права администратора выданы под «$env:USERNAME».`n`n" +
+         "Данные (файлы, закладки, Wi-Fi, папки профиля) будут браться у «$env:USERNAME», а не у «$OrigUser».`n`n" +
+         'Продолжить всё равно?'
+    if ([Windows.Forms.MessageBox]::Show($m, 'Перенос данных — внимание', 'YesNo', 'Warning') -ne [Windows.Forms.DialogResult]::Yes) { exit }
+}
 [Windows.Forms.Application]::EnableVisualStyles()
 
 # ---------------------------------------------------------------------------
