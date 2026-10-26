@@ -146,8 +146,13 @@ $OpsCode = {
                 $items += @{ Base = $b.Base; Rel = $bm.FullName.Substring((Resolve-Base $b.Base).Length + 1) }
             }
         }
-        $opera = Join-Path $env:APPDATA 'Opera Software\Opera Stable\Bookmarks'
-        if (Test-Path $opera) { $items += @{ Base = 'APPDATA'; Rel = 'Opera Software\Opera Stable\Bookmarks' } }
+        # Opera, Opera GX и будущие профили: Opera GX живёт в «Opera GX Stable», а не «Opera Stable» —
+        # перебираем все профили *Stable*, иначе у пользователей Opera GX закладки не сохранялись.
+        $operaRoot = Join-Path $env:APPDATA 'Opera Software'
+        foreach ($bm in (Get-ChildItem $operaRoot -Filter 'Bookmarks' -Recurse -Depth 1 -File -ErrorAction SilentlyContinue |
+                         Where-Object { $_.Directory.Name -like '*Stable*' })) {
+            $items += @{ Base = 'APPDATA'; Rel = $bm.FullName.Substring((Resolve-Base 'APPDATA').Length + 1) }
+        }
         if (Test-Path (Join-Path $env:APPDATA 'Mozilla\Firefox')) {
             $items += @{ Base = 'APPDATA'; Rel = 'Mozilla\Firefox' }
         }
