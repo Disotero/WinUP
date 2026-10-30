@@ -1701,69 +1701,246 @@ if (-not ('ConHelper' -as [type])) {
 # Прячем консоль сразу, чтобы она не торчала за окном программы (вернём после диалога, если попросят)
 try { [void][ConHelper]::ShowWindow([ConHelper]::GetConsoleWindow(), 0) } catch {}
 
-# -------- Тема (светлая / тёмная) --------
+# -------- Тема (Windows 11 Fluent: светлая / тёмная) --------
 function Get-Theme([string]$Name) {
     if ($Name -eq 'dark') {
-        @{ Bg=[Drawing.Color]::FromArgb(30,31,34);  Panel=[Drawing.Color]::FromArgb(42,43,47)
-           Fg=[Drawing.Color]::FromArgb(230,230,230); SubFg=[Drawing.Color]::FromArgb(160,160,160)
-           Accent=[Drawing.Color]::FromArgb(79,140,255); AccentFg=[Drawing.Color]::White
-           TileOff=[Drawing.Color]::FromArgb(52,54,59); Border=[Drawing.Color]::FromArgb(70,72,80)
-           TileHover=[Drawing.Color]::FromArgb(64,66,72); AccentHover=[Drawing.Color]::FromArgb(105,160,255)
-           Danger=[Drawing.Color]::FromArgb(255,107,107) }
+        @{ Bg=[Drawing.Color]::FromArgb(32,32,32);    Panel=[Drawing.Color]::FromArgb(43,43,43)
+           Fg=[Drawing.Color]::FromArgb(240,240,240); SubFg=[Drawing.Color]::FromArgb(169,169,169)
+           Accent=[Drawing.Color]::FromArgb(96,205,255); AccentFg=[Drawing.Color]::FromArgb(6,32,46)
+           AccentHover=[Drawing.Color]::FromArgb(120,215,255); AccentWeak=[Drawing.Color]::FromArgb(34,56,69)
+           Side=[Drawing.Color]::FromArgb(39,39,39); Card=[Drawing.Color]::FromArgb(43,43,43); Card2=[Drawing.Color]::FromArgb(49,49,49)
+           Border=[Drawing.Color]::FromArgb(28,28,28); Border2=[Drawing.Color]::FromArgb(58,58,58)
+           Hover=[Drawing.Color]::FromArgb(50,50,50); TrackOff=[Drawing.Color]::FromArgb(110,110,110)
+           TileOff=[Drawing.Color]::FromArgb(43,43,43); TileHover=[Drawing.Color]::FromArgb(50,50,50)
+           Danger=[Drawing.Color]::FromArgb(255,153,164) }
     } else {
         @{ Bg=[Drawing.Color]::FromArgb(243,243,243); Panel=[Drawing.Color]::White
-           Fg=[Drawing.Color]::FromArgb(27,27,27); SubFg=[Drawing.Color]::FromArgb(110,110,110)
-           Accent=[Drawing.Color]::FromArgb(37,99,235); AccentFg=[Drawing.Color]::White
-           TileOff=[Drawing.Color]::FromArgb(233,233,236); Border=[Drawing.Color]::FromArgb(210,210,214)
-           TileHover=[Drawing.Color]::FromArgb(221,221,228); AccentHover=[Drawing.Color]::FromArgb(29,78,216)
-           Danger=[Drawing.Color]::FromArgb(192,57,43) }
+           Fg=[Drawing.Color]::FromArgb(26,26,26); SubFg=[Drawing.Color]::FromArgb(94,94,94)
+           Accent=[Drawing.Color]::FromArgb(0,103,192); AccentFg=[Drawing.Color]::White
+           AccentHover=[Drawing.Color]::FromArgb(16,110,190); AccentWeak=[Drawing.Color]::FromArgb(234,242,251)
+           Side=[Drawing.Color]::FromArgb(235,235,235); Card=[Drawing.Color]::White; Card2=[Drawing.Color]::FromArgb(251,251,251)
+           Border=[Drawing.Color]::FromArgb(226,226,228); Border2=[Drawing.Color]::FromArgb(214,214,216)
+           Hover=[Drawing.Color]::FromArgb(237,237,237); TrackOff=[Drawing.Color]::FromArgb(150,150,150)
+           TileOff=[Drawing.Color]::White; TileHover=[Drawing.Color]::FromArgb(237,237,237)
+           Danger=[Drawing.Color]::FromArgb(196,43,28) }
     }
 }
 $script:ThemeName = if ($UiTheme -eq 'dark') { 'dark' } else { 'light' }
 $script:Theme     = Get-Theme $script:ThemeName
-$script:tiles     = @()
+$script:tiles     = @()   # карточки режимов (owner-drawn)
+$script:toggles   = @()   # строки-тумблеры (owner-drawn CheckBox)
+$script:navBtns   = @()   # кнопки бокового меню
+$script:pages     = @()   # страницы-разделы
+$script:panels    = @()   # контейнеры с фоном окна
+$script:navSel    = 'run'
 
-# Опции оптимизации: рабочая копия значений по умолчанию (меняются на вкладке «Оптимизация»)
+# Опции оптимизации: рабочая копия значений по умолчанию (меняются в разделе «Оптимизация»)
 $OptOptions = [ordered]@{}
 foreach ($k in $OptDefaults.Keys) { $OptOptions[$k] = $OptDefaults[$k] }
 
-function Set-CtlTheme($parent, $t) {
-    foreach ($c in $parent.Controls) {
-        switch ($c.GetType().Name) {
-            'Label'      { $c.BackColor=[Drawing.Color]::Transparent
-                           $c.ForeColor = if ($c.Tag -eq 'danger') { $t.Danger } elseif ($c.Tag -eq 'sub') { $t.SubFg } else { $t.Fg } }
-            'LinkLabel'  { $c.BackColor=[Drawing.Color]::Transparent; $c.LinkColor=$t.Accent; $c.ActiveLinkColor=$t.Accent; $c.ForeColor=$t.SubFg }
-            'CheckBox'   { $c.BackColor=[Drawing.Color]::Transparent
-                           $c.ForeColor = if ($c.Tag -eq 'danger') { $t.Danger } else { $t.Fg } }
-            'TextBox'    { $c.BackColor=$t.Panel; $c.ForeColor=$t.Fg }
-            'TabPage'    { $c.BackColor=$t.Panel }
-            'TabControl' { $c.BackColor=$t.Bg }
-            'Panel'      { $c.BackColor=$t.Panel }
-            'GroupBox'   { $c.BackColor=[Drawing.Color]::Transparent; $c.ForeColor=$t.Fg }
-            default      { }
-        }
-        if ($c.Controls.Count) { Set-CtlTheme $c $t }
-    }
+# -------- Шрифты интерфейса --------
+$script:fBrand = New-Object Drawing.Font('Segoe UI',14,[Drawing.FontStyle]::Bold)
+$script:fH1    = New-Object Drawing.Font('Segoe UI',15,[Drawing.FontStyle]::Bold)
+$script:fSect  = New-Object Drawing.Font('Segoe UI',8.5,[Drawing.FontStyle]::Bold)
+$script:fCardT = New-Object Drawing.Font('Segoe UI',11,[Drawing.FontStyle]::Bold)
+$script:fCardD = New-Object Drawing.Font('Segoe UI',8.5)
+$script:fRow   = New-Object Drawing.Font('Segoe UI',10)
+$script:fRowD  = New-Object Drawing.Font('Segoe UI',8.5)
+$script:fNav   = New-Object Drawing.Font('Segoe UI',10.5)
+$script:fNavB  = New-Object Drawing.Font('Segoe UI',10.5,[Drawing.FontStyle]::Bold)
+try { $script:fIcon = New-Object Drawing.Font('Segoe UI Symbol',14) } catch { $script:fIcon = New-Object Drawing.Font('Segoe UI',14) }
+
+# -------- Помощники отрисовки --------
+# Двойная буферизация панели/контрола (меньше мерцания при перерисовке)
+function Set-DoubleBuffered($ctl) {
+    try {
+        $p = [System.Windows.Forms.Control].GetProperty('DoubleBuffered',[System.Reflection.BindingFlags]'Instance,NonPublic')
+        $p.SetValue($ctl,$true,$null)
+    } catch {}
 }
-function Highlight-Tiles($t) {
-    foreach ($b in $script:tiles) {
-        if ("$($b.Tag)" -eq $script:SelMode) {
-            $b.BackColor=$t.Accent; $b.ForeColor=$t.AccentFg; $b.FlatAppearance.BorderColor=$t.Accent; $b.FlatAppearance.BorderSize=2
-            $b.FlatAppearance.MouseOverBackColor=$t.AccentHover; $b.FlatAppearance.MouseDownBackColor=$t.Accent
+# Путь «скруглённый прямоугольник»
+function Get-RoundRect([int]$x,[int]$y,[int]$w,[int]$h,[int]$r) {
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $d = $r * 2
+    $m = [math]::Min($w,$h); if ($d -gt $m) { $d = $m }
+    if ($d -le 0) { $path.AddRectangle((New-Object Drawing.Rectangle $x,$y,$w,$h)); return $path }
+    $path.AddArc($x, $y, $d, $d, 180, 90)
+    $path.AddArc(($x+$w-$d), $y, $d, $d, 270, 90)
+    $path.AddArc(($x+$w-$d), ($y+$h-$d), $d, $d, 0, 90)
+    $path.AddArc($x, ($y+$h-$d), $d, $d, 90, 90)
+    $path.CloseFigure()
+    return $path
+}
+# Отрисовка карточки режима
+function Paint-ModeCard($s,$e) {
+    try {
+        $t=$script:Theme; $g=$e.Graphics; $g.SmoothingMode='AntiAlias'; $g.TextRenderingHint='ClearTypeGridFit'
+        $w=$s.ClientSize.Width; $h=$s.ClientSize.Height
+        $sel = ("$($s.Tag)" -eq $script:SelMode)
+        $path = Get-RoundRect 0 0 ($w-1) ($h-1) 8
+        $fb = New-Object Drawing.SolidBrush ($(if($sel){$t.AccentWeak}else{$t.Card})); $g.FillPath($fb,$path); $fb.Dispose()
+        $pen = New-Object Drawing.Pen ($(if($sel){$t.Accent}else{$t.Border2})), ([single]$(if($sel){1.8}else{1.0})); $g.DrawPath($pen,$path); $pen.Dispose()
+        $path.Dispose()
+        $isz=34; $iy=[int](($h-$isz)/2); $ix=14
+        $ip = Get-RoundRect $ix $iy $isz $isz 8
+        $ibr = New-Object Drawing.SolidBrush ($(if($sel){$t.Accent}else{$t.AccentWeak})); $g.FillPath($ibr,$ip); $ibr.Dispose(); $ip.Dispose()
+        $sf = New-Object Drawing.StringFormat; $sf.Alignment='Center'; $sf.LineAlignment='Center'
+        $icb = New-Object Drawing.SolidBrush ($(if($sel){$t.AccentFg}else{$t.Accent}))
+        $g.DrawString([string]$s.CardIcon,$script:fIcon,$icb,(New-Object Drawing.RectangleF ([single]$ix),([single]$iy),([single]$isz),([single]$isz)),$sf); $icb.Dispose()
+        $tx = $ix + $isz + 12
+        $tb = New-Object Drawing.SolidBrush $t.Fg
+        $g.DrawString([string]$s.CardTitle,$script:fCardT,$tb,([single]$tx),([single]11)); $tb.Dispose()
+        $db = New-Object Drawing.SolidBrush $t.SubFg
+        $dr = New-Object Drawing.RectangleF ([single]$tx),([single]31),([single]($w-$tx-14)),([single]($h-33))
+        $g.DrawString([string]$s.CardDesc,$script:fCardD,$db,$dr); $db.Dispose()
+        if ($sel) {
+            $cd=18; $cx=$w-$cd-10; $cy=9
+            $cb=New-Object Drawing.SolidBrush $t.Accent; $g.FillEllipse($cb,$cx,$cy,$cd,$cd); $cb.Dispose()
+            $ckb=New-Object Drawing.SolidBrush $t.AccentFg
+            $g.DrawString([string][char]0x2713,$script:fCardD,$ckb,(New-Object Drawing.RectangleF ([single]$cx),([single]$cy),([single]$cd),([single]$cd)),$sf); $ckb.Dispose()
+        }
+        $sf.Dispose()
+    } catch {}
+}
+# Отрисовка строки-тумблера (owner-drawn CheckBox)
+function Paint-Toggle($s,$e) {
+    try {
+        $t=$script:Theme; $g=$e.Graphics; $g.SmoothingMode='AntiAlias'; $g.TextRenderingHint='ClearTypeGridFit'
+        $w=$s.ClientSize.Width; $h=$s.ClientSize.Height
+        $danger = ("$($s.Tag)" -eq 'danger')
+        $path = Get-RoundRect 0 3 ($w-1) ($h-7) 8
+        $fb = New-Object Drawing.SolidBrush $t.Card; $g.FillPath($fb,$path); $fb.Dispose()
+        $pen = New-Object Drawing.Pen ($(if($danger){$t.Danger}else{$t.Border2})), 1; $g.DrawPath($pen,$path); $pen.Dispose()
+        $path.Dispose()
+        $padX=15
+        $hasDesc = [bool]([string]$s.RowDesc)
+        $titleCol = if (-not $s.Enabled) { $t.SubFg } elseif ($danger) { $t.Danger } else { $t.Fg }
+        $tb = New-Object Drawing.SolidBrush $titleCol
+        if ($hasDesc) {
+            $g.DrawString([string]$s.RowTitle,$script:fRow,$tb,([single]$padX),([single]11))
+            $db=New-Object Drawing.SolidBrush $t.SubFg
+            $g.DrawString([string]$s.RowDesc,$script:fRowD,$db,([single]$padX),([single]30)); $db.Dispose()
         } else {
-            $b.BackColor=$t.TileOff; $b.ForeColor=$t.Fg; $b.FlatAppearance.BorderColor=$t.Border; $b.FlatAppearance.BorderSize=1
-            $b.FlatAppearance.MouseOverBackColor=$t.TileHover; $b.FlatAppearance.MouseDownBackColor=$t.Border
+            $sz=$g.MeasureString([string]$s.RowTitle,$script:fRow)
+            $g.DrawString([string]$s.RowTitle,$script:fRow,$tb,([single]$padX),([single]([int](($h-$sz.Height)/2))))
         }
+        $tb.Dispose()
+        $swW=42; $swH=22; $swX=$w-$padX-$swW; $swY=[int](($h-$swH)/2)
+        $on=[bool]$s.Checked
+        $trackCol = if ($on) { if ($s.Enabled) { $t.Accent } else { $t.TrackOff } } else { $t.TrackOff }
+        $tp=Get-RoundRect $swX $swY $swW $swH ([int]($swH/2))
+        $tbr=New-Object Drawing.SolidBrush $trackCol; $g.FillPath($tbr,$tp); $tbr.Dispose(); $tp.Dispose()
+        $kd=$swH-6
+        $kx=if($on){$swX+$swW-$kd-3}else{$swX+3}
+        $kcol=if($on){$t.AccentFg}else{ if($script:ThemeName -eq 'dark'){[Drawing.Color]::FromArgb(210,210,210)}else{[Drawing.Color]::White} }
+        $kb=New-Object Drawing.SolidBrush $kcol; $g.FillEllipse($kb,$kx,($swY+3),$kd,$kd); $kb.Dispose()
+    } catch {}
+}
+
+# -------- Строители контролов --------
+function New-ModeCard($def,$x,$y,$w,$h) {
+    $c=New-Object Windows.Forms.Panel
+    $c.SetBounds($x,$y,$w,$h); $c.Tag=$def.Key; $c.Cursor='Hand'; $c.BackColor=$script:Theme.Bg
+    $c | Add-Member -NotePropertyName CardTitle -NotePropertyValue $def.Title -Force
+    $c | Add-Member -NotePropertyName CardDesc  -NotePropertyValue $def.Desc  -Force
+    $c | Add-Member -NotePropertyName CardIcon  -NotePropertyValue $def.Icon  -Force
+    Set-DoubleBuffered $c
+    $c.Add_Paint({ param($s,$e) Paint-ModeCard $s $e })
+    $c.Add_Click({ $script:SelMode="$($this.Tag)"; Update-Checks; Highlight-Tiles $script:Theme; Update-Preview })
+    $script:tiles += $c
+    return $c
+}
+function New-ToggleRow($title,$desc,$checked,$danger,$width) {
+    $c=New-Object Windows.Forms.CheckBox
+    $c.AutoSize=$false; $c.Width=$width; $c.Height= $(if([string]$desc){54}else{46})
+    $c.Checked=[bool]$checked; $c.FlatStyle='Flat'; $c.Appearance='Normal'; $c.Cursor='Hand'; $c.Text=''
+    $c.FlatAppearance.BorderSize=0; $c.FlatAppearance.CheckedBackColor=$script:Theme.Card; $c.BackColor=$script:Theme.Card
+    $c.Margin=New-Object Windows.Forms.Padding(0,0,0,4)
+    if ($danger) { $c.Tag='danger' }
+    $c | Add-Member -NotePropertyName RowTitle -NotePropertyValue $title -Force
+    $c | Add-Member -NotePropertyName RowDesc  -NotePropertyValue $desc  -Force
+    Set-DoubleBuffered $c
+    $c.Add_Paint({ param($s,$e) Paint-Toggle $s $e })
+    $c.Add_CheckedChanged({ $this.Invalidate() })
+    $c.Add_EnabledChanged({ $this.Invalidate() })
+    $script:toggles += $c
+    return $c
+}
+function New-SectionLabel($text,$width) {
+    $l=New-Object Windows.Forms.Label; $l.Text=$text.ToUpper(); $l.Tag='section'
+    $l.AutoSize=$false; $l.Width=$width; $l.Height=26; $l.Font=$script:fSect; $l.TextAlign='BottomLeft'
+    $l.Margin=New-Object Windows.Forms.Padding(2,8,0,2)
+    return $l
+}
+function New-Page($key) {
+    $f=New-Object Windows.Forms.FlowLayoutPanel
+    $f.Dock='Fill'; $f.FlowDirection='TopDown'; $f.WrapContents=$false; $f.AutoScroll=$true; $f.Tag=$key; $f.Visible=$false
+    $f.Padding=New-Object Windows.Forms.Padding(22,18,22,16)
+    $script:pages += $f; $script:content.Controls.Add($f)
+    return $f
+}
+function Add-PageTitle($flow,$title,$sub) {
+    $lt=New-Object Windows.Forms.Label; $lt.Text=$title; $lt.Font=$script:fH1; $lt.AutoSize=$true
+    $lt.Margin=New-Object Windows.Forms.Padding(2,0,0,0); $flow.Controls.Add($lt)
+    if ($sub) {
+        $ls=New-Object Windows.Forms.Label; $ls.Text=$sub; $ls.Tag='sub'; $ls.AutoSize=$true
+        $ls.Margin=New-Object Windows.Forms.Padding(2,2,0,6); $flow.Controls.Add($ls)
     }
 }
+
+# -------- Применение темы --------
+function Recolor-Labels($parent,$t) {
+    foreach ($c in $parent.Controls) {
+        $n=$c.GetType().Name
+        if ($n -eq 'Label') {
+            $c.BackColor=[Drawing.Color]::Transparent
+            $c.ForeColor = if ($c.Tag -eq 'danger') { $t.Danger } elseif ($c.Tag -eq 'sub' -or $c.Tag -eq 'section') { $t.SubFg } else { $t.Fg }
+        } elseif ($n -eq 'LinkLabel') {
+            $c.BackColor=[Drawing.Color]::Transparent; $c.LinkColor=$t.Accent; $c.ActiveLinkColor=$t.AccentHover; $c.ForeColor=$t.SubFg
+        }
+        if ($c.Controls.Count) { Recolor-Labels $c $t }
+    }
+}
+function Style-Nav {
+    $t=$script:Theme; $active=$null
+    foreach ($b in $script:navBtns) {
+        if ("$($b.Tag)" -eq $script:navSel) {
+            $b.BackColor=$t.Card; $b.Font=$script:fNavB; $b.FlatAppearance.MouseOverBackColor=$t.Card; $active=$b
+        } else {
+            $b.BackColor=$t.Side; $b.Font=$script:fNav; $b.FlatAppearance.MouseOverBackColor=$t.Hover
+        }
+        $b.ForeColor=$t.Fg
+    }
+    if ($script:navStrip) {
+        if ($active) {
+            $script:navStrip.Visible=$true; $script:navStrip.BackColor=$t.Accent; $script:navStrip.BringToFront()
+            $script:navStrip.Location=New-Object Drawing.Point(10, ($active.Top + [int](($active.Height-18)/2)))
+        } else { $script:navStrip.Visible=$false }
+    }
+}
+function Show-Page($key) {
+    $script:navSel=$key
+    foreach ($p in $script:pages) { $p.Visible = ("$($p.Tag)" -eq $key) }
+    Style-Nav
+}
+function Highlight-Tiles($t) { foreach ($c in $script:tiles) { $c.Invalidate() } }
 function Apply-Theme {
-    $t = $script:Theme
-    $form.BackColor = $t.Bg
-    Set-CtlTheme $form $t
-    Highlight-Tiles $t
-    $btnTheme.BackColor=$t.TileOff; $btnTheme.ForeColor=$t.Fg; $btnTheme.FlatAppearance.BorderColor=$t.Border; $btnTheme.FlatAppearance.MouseOverBackColor=$t.TileHover
-    $btnStart.BackColor=$t.Accent;  $btnStart.ForeColor=$t.AccentFg; $btnStart.FlatAppearance.BorderColor=$t.Accent; $btnStart.FlatAppearance.MouseOverBackColor=$t.AccentHover
-    if ($btnTransfer) { $btnTransfer.BackColor=$t.TileOff; $btnTransfer.ForeColor=$t.Fg; $btnTransfer.FlatAppearance.BorderColor=$t.Border; $btnTransfer.FlatAppearance.MouseOverBackColor=$t.TileHover }
+    $t=$script:Theme
+    $form.BackColor=$t.Bg
+    if ($script:sideBar)   { $script:sideBar.BackColor=$t.Side }
+    if ($script:content)   { $script:content.BackColor=$t.Bg }
+    if ($script:actionBar) { $script:actionBar.BackColor=$t.Bg }
+    if ($script:actionSep) { $script:actionSep.BackColor=$t.Border }
+    foreach ($p in $script:pages)  { $p.BackColor=$t.Bg }
+    foreach ($p in $script:panels) { $p.BackColor=$t.Bg }
+    Recolor-Labels $form $t
+    Style-Nav
+    foreach ($c in $script:tiles)   { $c.BackColor=$t.Bg;   $c.Invalidate() }
+    foreach ($c in $script:toggles) { $c.BackColor=$t.Card; $c.Invalidate() }
+    if ($prev) { $prev.BackColor=$t.Card; $prev.ForeColor=$t.Fg }
+    if ($btnTheme)    { $btnTheme.BackColor=$t.Card; $btnTheme.ForeColor=$t.Fg; $btnTheme.FlatAppearance.BorderColor=$t.Border2; $btnTheme.FlatAppearance.MouseOverBackColor=$t.Hover }
+    if ($btnTransfer) { $btnTransfer.BackColor=$t.Card; $btnTransfer.ForeColor=$t.Fg; $btnTransfer.FlatAppearance.BorderColor=$t.Border2; $btnTransfer.FlatAppearance.MouseOverBackColor=$t.Hover }
+    if ($btnStart)    { $btnStart.BackColor=$t.Accent; $btnStart.ForeColor=$t.AccentFg; $btnStart.FlatAppearance.BorderColor=$t.Accent; $btnStart.FlatAppearance.MouseOverBackColor=$t.AccentHover }
 }
 
 # -------- Окно --------
@@ -1775,102 +1952,167 @@ $form.MaximizeBox     = $false
 $form.MinimizeBox     = $false
 $form.TopMost         = $true
 $form.Font            = New-Object Drawing.Font('Segoe UI', 10)
-$form.ClientSize      = New-Object Drawing.Size(640, 600)
+$form.ClientSize      = New-Object Drawing.Size(884, 600)
 try {
     $iconPath = Join-Path $PSScriptRoot 'icon.ico'
     if (Test-Path $iconPath) { $form.Icon = New-Object System.Drawing.Icon($iconPath) }
 } catch {}
 
-# Заголовок
-$lblTitle = New-Object Windows.Forms.Label
-$lblTitle.Text='Ваша версия ОС'; $lblTitle.AutoSize=$true; $lblTitle.Location=New-Object Drawing.Point(16,14)
-$lblTitle.Font=New-Object Drawing.Font('Segoe UI',12,[Drawing.FontStyle]::Bold)
-$form.Controls.Add($lblTitle)
+$actionH = 58
+$sideW   = 210
+$sideH   = $form.ClientSize.Height - $actionH
+$rowW    = 600                                   # ширина строк/карточек в области контента
 
-$lblSub = New-Object Windows.Forms.Label
-$lblSub.Text="$($os.Caption) (сборка $($os.BuildNumber))"; $lblSub.Tag='sub'; $lblSub.AutoSize=$true
-$lblSub.Location=New-Object Drawing.Point(18,46)
-$form.Controls.Add($lblSub)
+# Версия (для подписи в меню) — из system\version.txt
+$verTxt = ''
+try { $vf = Join-Path $PSScriptRoot 'version.txt'; if (Test-Path -LiteralPath $vf) { $verTxt = (Get-Content -LiteralPath $vf -TotalCount 1).Trim() } } catch {}
 
-# Кнопка переключения темы (справа вверху)
+# -------- Нижняя панель действий (во всю ширину, снизу) --------
+$script:actionBar = New-Object Windows.Forms.Panel
+$script:actionBar.Dock='Bottom'; $script:actionBar.Height=$actionH
+$script:actionSep = New-Object Windows.Forms.Panel
+$script:actionSep.Dock='Top'; $script:actionSep.Height=1
+$script:actionBar.Controls.Add($script:actionSep)
+$form.Controls.Add($script:actionBar)
+
+$lnk = New-Object Windows.Forms.LinkLabel
+$lnk.Text='Собрать офлайн-папку (без интернета)...'; $lnk.AutoSize=$true
+$lnk.Location=New-Object Drawing.Point(($sideW+24),21)
+$script:actionBar.Controls.Add($lnk)
+$lnk.Add_LinkClicked({
+    $m = "Будут скачаны программы, Office, FurMark, датчики температуры, драйвер NVIDIA и выгружены базовые драйверы этого ПК в папку:`n$OfflineDir`n`nНужен интернет, займёт 6–8 ГБ и 20–60 минут.`n`nНачать?"
+    if ([Windows.Forms.MessageBox]::Show($form, $m, 'Офлайн-папка', 'OKCancel', 'Question') -eq 'OK') { $form.Tag='offline'; $form.Close() }
+})
+
+$btnStart = New-Object Windows.Forms.Button
+$btnStart.Text='СТАРТ'; $btnStart.Size=New-Object Drawing.Size(180,42)
+$btnStart.Location=New-Object Drawing.Point(($form.ClientSize.Width-24-180),8)
+$btnStart.Font=New-Object Drawing.Font('Segoe UI',12,[Drawing.FontStyle]::Bold)
+$btnStart.FlatStyle='Flat'; $btnStart.FlatAppearance.BorderSize=0; $btnStart.Cursor='Hand'; $btnStart.Anchor='Top,Right'
+$script:actionBar.Controls.Add($btnStart); $form.AcceptButton=$btnStart
+
+# -------- Боковое меню (слева) --------
+$script:sideBar = New-Object Windows.Forms.Panel
+$script:sideBar.Dock='Left'; $script:sideBar.Width=$sideW
+$form.Controls.Add($script:sideBar)
+
+# Логотип приложения
+try {
+    $logoPath = Join-Path $PSScriptRoot 'icon.png'
+    if (Test-Path -LiteralPath $logoPath) {
+        $logo=New-Object Windows.Forms.PictureBox
+        $logo.SizeMode='Zoom'; $logo.SetBounds(16,18,34,34); $logo.BackColor=[Drawing.Color]::Transparent
+        $logo.Image=New-Object System.Drawing.Bitmap($logoPath)
+        $script:sideBar.Controls.Add($logo)
+    }
+} catch {}
+$lblBrand=New-Object Windows.Forms.Label; $lblBrand.Text='WinUP'; $lblBrand.AutoSize=$true
+$lblBrand.Font=$script:fBrand; $lblBrand.Location=New-Object Drawing.Point(58,19)
+$script:sideBar.Controls.Add($lblBrand)
+$lblVer=New-Object Windows.Forms.Label; $lblVer.Text=$(if($verTxt){"версия $verTxt"}else{'настройка Windows'}); $lblVer.Tag='sub'; $lblVer.AutoSize=$true
+$lblVer.Location=New-Object Drawing.Point(60,43)
+$script:sideBar.Controls.Add($lblVer)
+
+# Пункты навигации
+$navDefs=@(
+    @{ Key='run';  Icon=[char]0x25B6; Label='Запуск' }
+    @{ Key='opt';  Icon=[char]0x2726; Label='Оптимизация' }
+    @{ Key='prev'; Icon=[char]0x2630; Label='Что будет' }
+)
+$navY=80
+foreach ($nd in $navDefs) {
+    $b=New-Object Windows.Forms.Button
+    $b.Text="$($nd.Icon)   $($nd.Label)"; $b.Tag=$nd.Key
+    $b.SetBounds(10,$navY,($sideW-20),38)
+    $b.FlatStyle='Flat'; $b.FlatAppearance.BorderSize=0; $b.TextAlign='MiddleLeft'
+    $b.Padding=New-Object Windows.Forms.Padding(14,0,0,0); $b.Cursor='Hand'; $b.Font=$script:fNav
+    $b.Add_Click({ Show-Page "$($this.Tag)" })
+    $script:sideBar.Controls.Add($b); $script:navBtns += $b
+    $navY += 42
+}
+# Акцентная полоска активного пункта
+$script:navStrip=New-Object Windows.Forms.Panel
+$script:navStrip.SetBounds(10,($navY),3,18)
+$script:sideBar.Controls.Add($script:navStrip)
+
+# Кнопка «Перенос данных» — открывает отдельный инструмент (data-transfer.ps1).
+# Главное окно НЕ закрываем: после закрытия переноса оно остаётся на экране.
+$btnTransfer=New-Object Windows.Forms.Button
+$btnTransfer.Text="$([char]0x21C4)   Перенос данных"; $btnTransfer.SetBounds(10,($sideH-100),($sideW-20),40)
+$btnTransfer.FlatStyle='Flat'; $btnTransfer.FlatAppearance.BorderSize=1; $btnTransfer.TextAlign='MiddleLeft'
+$btnTransfer.Padding=New-Object Windows.Forms.Padding(14,0,0,0); $btnTransfer.Cursor='Hand'; $btnTransfer.Font=$script:fNav; $btnTransfer.Anchor='Bottom,Left'
+$script:sideBar.Controls.Add($btnTransfer)
+$btnTransfer.Add_Click({
+    $dt = Join-Path $PSScriptRoot 'data-transfer.ps1'
+    if (-not (Test-Path $dt)) { [Windows.Forms.MessageBox]::Show($form, "Не найден файл переноса данных:`n$dt", 'Перенос данных', 'OK', 'Error') | Out-Null; return }
+    $form.Hide()
+    try { Start-Process powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$dt`"" -Wait } catch {}
+    $form.Show(); $form.Activate()
+})
+
+# Кнопка переключения темы (внизу меню)
 $btnTheme = New-Object Windows.Forms.Button
-$btnTheme.Text = if ($script:ThemeName -eq 'dark') { '☼ Светлая тема' } else { '☾ Тёмная тема' }
-$btnTheme.Size=New-Object Drawing.Size(140,32); $btnTheme.Location=New-Object Drawing.Point(504,16)
-$btnTheme.FlatStyle='Flat'; $btnTheme.FlatAppearance.BorderSize=1; $btnTheme.Cursor='Hand'
-$form.Controls.Add($btnTheme)
+$btnTheme.Text = if ($script:ThemeName -eq 'dark') { "$([char]0x263C)   Светлая тема" } else { "$([char]0x263E)   Тёмная тема" }
+$btnTheme.SetBounds(10,($sideH-52),($sideW-20),38)
+$btnTheme.FlatStyle='Flat'; $btnTheme.FlatAppearance.BorderSize=1; $btnTheme.TextAlign='MiddleLeft'
+$btnTheme.Padding=New-Object Windows.Forms.Padding(14,0,0,0); $btnTheme.Cursor='Hand'; $btnTheme.Font=$script:fNav; $btnTheme.Anchor='Bottom,Left'
+$script:sideBar.Controls.Add($btnTheme)
 $btnTheme.Add_Click({
     $script:ThemeName = if ($script:ThemeName -eq 'dark') { 'light' } else { 'dark' }
     $script:Theme = Get-Theme $script:ThemeName
-    $btnTheme.Text = if ($script:ThemeName -eq 'dark') { '☼ Светлая тема' } else { '☾ Тёмная тема' }
+    $btnTheme.Text = if ($script:ThemeName -eq 'dark') { "$([char]0x263C)   Светлая тема" } else { "$([char]0x263E)   Тёмная тема" }
     Apply-Theme
 })
 
-# Предупреждения (офлайн / не Windows 11)
-$noteY = 72
+# -------- Область контента (справа, во всё оставшееся место) --------
+$script:content = New-Object Windows.Forms.Panel
+$script:content.Dock='Fill'
+$form.Controls.Add($script:content)
+
+# ---- Раздел «Запуск» ----
+$pRun = New-Page 'run'
+Add-PageTitle $pRun 'Настройка Windows 11' "$($os.Caption) (сборка $($os.BuildNumber))"
 if ($Offline) {
-    $l = New-Object Windows.Forms.Label; $l.Tag='sub'; $l.AutoSize=$true; $l.MaximumSize=New-Object Drawing.Size(600,0)
+    $l = New-Object Windows.Forms.Label; $l.Tag='sub'; $l.AutoSize=$true; $l.MaximumSize=New-Object Drawing.Size($rowW,0)
     $l.Text = 'Режим БЕЗ ИНТЕРНЕТА — всё ставится из папки offline. ' + ((Get-Content $OfflineInfo -Encoding UTF8 | Select-Object -First 1))
-    $l.Location=New-Object Drawing.Point(18,$noteY); $form.Controls.Add($l); $noteY += $l.PreferredHeight + 4
+    $l.Margin=New-Object Windows.Forms.Padding(2,6,0,2); $pRun.Controls.Add($l)
 }
 if (-not $IsWin11) {
-    $l = New-Object Windows.Forms.Label; $l.Tag='danger'; $l.AutoSize=$true; $l.MaximumSize=New-Object Drawing.Size(600,0)
+    $l = New-Object Windows.Forms.Label; $l.Tag='danger'; $l.AutoSize=$true; $l.MaximumSize=New-Object Drawing.Size($rowW,0)
     $l.Text = 'ВНИМАНИЕ: скрипт сделан под Windows 11. На другой системе часть шагов может не сработать — на свой страх и риск.'
-    $l.Location=New-Object Drawing.Point(18,$noteY); $form.Controls.Add($l); $noteY += $l.PreferredHeight + 4
+    $l.Margin=New-Object Windows.Forms.Padding(2,6,0,2); $pRun.Controls.Add($l)
 }
-
-# -------- Вкладки --------
-$tabs = New-Object Windows.Forms.TabControl
-$tabs.Location=New-Object Drawing.Point(12,($noteY+6)); $tabs.Size=New-Object Drawing.Size(616,430)
-$form.Controls.Add($tabs)
-$tabRun = New-Object Windows.Forms.TabPage; $tabRun.Text='Запуск'
-$tabOpt = New-Object Windows.Forms.TabPage; $tabOpt.Text='Оптимизация'
-$tabPrev= New-Object Windows.Forms.TabPage; $tabPrev.Text='Выбранное'
-$tabs.TabPages.AddRange(@($tabRun,$tabOpt,$tabPrev))
-
-# ---- Вкладка «Запуск» ----
-$lblMode = New-Object Windows.Forms.Label; $lblMode.Text='Режим:'; $lblMode.AutoSize=$true
-$lblMode.Location=New-Object Drawing.Point(14,12); $lblMode.Font=New-Object Drawing.Font('Segoe UI',10,[Drawing.FontStyle]::Bold)
-$tabRun.Controls.Add($lblMode)
-
+$pRun.Controls.Add((New-SectionLabel 'Режим работы' $rowW))
 $modeDefs = @(
-    @{ Key='all';      Title='Всё';               Desc='Настройка, программы, драйверы' }
-    @{ Key='apps';     Title='Программы';          Desc='Только программы и Office' }
-    @{ Key='optimize'; Title='Оптимизация';        Desc='Место, скорость, мусор' }
-    @{ Key='stress';   Title='Стресс-тест';        Desc='Проверка железа, ничего не меняет' }
+    @{ Key='all';      Title='Всё';               Desc='Настройка, программы, драйверы, оптимизация'; Icon=[char]0x2699 }
+    @{ Key='apps';     Title='Только программы';   Desc='Программы и Office, без изменений системы';    Icon=[char]0x25A6 }
+    @{ Key='optimize'; Title='Оптимизация';        Desc='Место, скорость, очистка мусора';             Icon=[char]0x2726 }
+    @{ Key='stress';   Title='Стресс-тест';        Desc='Проверка железа, систему не меняет';          Icon=[char]0x25A4 }
 )
 $script:SelMode = 'all'
-$tx=14; $ty=38; $i=0
+$modeBox = New-Object Windows.Forms.Panel; $modeBox.Width=$rowW; $modeBox.Height=154
+$modeBox.Margin=New-Object Windows.Forms.Padding(0,2,0,2)
+$cardW = [int](($rowW-14)/2)
+$i=0
 foreach ($m in $modeDefs) {
-    $b = New-Object Windows.Forms.Button
-    $b.Text = "$($m.Title)`n$($m.Desc)"; $b.Tag=$m.Key
-    $b.Size=New-Object Drawing.Size(285,52)
     $col = $i % 2; $row = [math]::Floor($i/2)   # [int](3/2) в PowerShell даёт 2, не 1 — поэтому Floor
-    $b.Location=New-Object Drawing.Point(($tx+$col*295),($ty+$row*60))
-    $b.FlatStyle='Flat'; $b.TextAlign='MiddleLeft'; $b.Cursor='Hand'; $b.Padding=New-Object Windows.Forms.Padding(8,0,0,0)
-    $b.Add_Click({ $script:SelMode = "$($this.Tag)"; Update-Checks; Highlight-Tiles $script:Theme; Update-Preview })
-    $tabRun.Controls.Add($b); $script:tiles += $b; $i++
+    $cx = $col*($cardW+14); $cy = $row*(70+14)
+    $modeBox.Controls.Add((New-ModeCard $m $cx $cy $cardW 70)); $i++
 }
+$script:panels += $modeBox
+$pRun.Controls.Add($modeBox)
+$pRun.Controls.Add((New-SectionLabel 'Параметры запуска' $rowW))
+$chk          = New-ToggleRow 'Со стресс-тестом' 'Проверка железа и оценка для игр после настройки' $StressTestDefault $false $rowW
+$chkRemove    = New-ToggleRow 'Удалить программы для тестов после' 'FurMark и другие утилиты диагностики' $RemoveTestToolsDefault $false $rowW
+$chkOptimize  = New-ToggleRow 'Оптимизация и очистка' 'Освободить место и ускорить систему' $DoOptimize $false $rowW
+$chkReinstall = New-ToggleRow 'Переустановить уже установленные программы' '' $ReinstallDefault $false $rowW
+$chkClient    = New-ToggleRow 'Подготовить для передачи другому человеку' 'После перезагрузки и входа ПК выключится для нового владельца' $ClientModeDefault $false $rowW
+$chkConsole   = New-ToggleRow 'Показывать окно консоли' 'Подробный технический лог во время работы' $ShowConsole $false $rowW
+foreach ($c in @($chk,$chkRemove,$chkOptimize,$chkReinstall,$chkClient,$chkConsole)) { $pRun.Controls.Add($c) }
 
-$optY = $ty + 2*60 + 14
-function Add-RunCheck([string]$Text,[int]$X,[bool]$Checked) {
-    $c = New-Object Windows.Forms.CheckBox; $c.Text=$Text; $c.AutoSize=$true
-    $c.Location=New-Object Drawing.Point($X,$script:optY); $c.Checked=$Checked
-    $tabRun.Controls.Add($c); $script:optY += $c.PreferredSize.Height + 4; return $c
-}
-$chk          = Add-RunCheck 'Со стресс-тестом (проверка железа и оценка для игр)' 14 $StressTestDefault
-$chkRemove    = Add-RunCheck 'Удалить программы для тестов после (FurMark и др.)' 34 $RemoveTestToolsDefault
-$script:optY += 4
-$chkOptimize  = Add-RunCheck 'Оптимизация и очистка (освободить место, ускорить)' 14 $DoOptimize
-$chkReinstall = Add-RunCheck 'Переустановить уже установленные программы' 14 $ReinstallDefault
-$chkClient    = Add-RunCheck 'Подготовить для передачи другому человеку' 14 $ClientModeDefault
-$script:optY += 4
-$chkConsole   = Add-RunCheck 'Показывать окно консоли (подробный лог) во время работы' 14 $ShowConsole
-
-# ---- Вкладка «Оптимизация» ----
-$optLbl = New-Object Windows.Forms.Label; $optLbl.AutoSize=$true; $optLbl.MaximumSize=New-Object Drawing.Size(590,0); $optLbl.Tag='sub'
-$optLbl.Text='Базовая очистка и безопасные настройки выполняются всегда. Ниже — дополнительные опции (по умолчанию выключены).'
-$optLbl.Location=New-Object Drawing.Point(14,12); $tabOpt.Controls.Add($optLbl)
-
+# ---- Раздел «Оптимизация» ----
+$pOpt = New-Page 'opt'
+Add-PageTitle $pOpt 'Оптимизация' 'Базовая очистка и безопасные настройки выполняются всегда. Ниже — дополнительные опции (по умолчанию выключены).'
 $optDefsUI = @(
     @{ Key='BrowserCache';    Text='Очистить кэши браузеров (пароли и закладки не трогаются)' }
     @{ Key='OldDrivers';      Text='Удалить старые версии драйверов (активные оставить)' }
@@ -1883,72 +2125,33 @@ $optDefsUI = @(
     @{ Key='PrivacyHandover'; Text='Очистить историю (недавние, «Выполнить», буфер) — для передачи ПК' }
 )
 $script:optChecks = @{}
-$oy = 12 + $optLbl.PreferredHeight + 12   # под фактической высотой (многострочного) заголовка
+$pOpt.Controls.Add((New-SectionLabel 'Дополнительно' $rowW))
 foreach ($o in $optDefsUI) {
-    $c = New-Object Windows.Forms.CheckBox; $c.Text=$o.Text; $c.AutoSize=$true
-    $c.Location=New-Object Drawing.Point(16,$oy); $c.Checked=[bool]$OptDefaults[$o.Key]
+    $c = New-ToggleRow $o.Text '' ([bool]$OptDefaults[$o.Key]) $false $rowW
     $c.Add_CheckedChanged({ Update-Preview })
-    $tabOpt.Controls.Add($c); $script:optChecks[$o.Key]=$c; $oy += $c.PreferredSize.Height + 6
+    $pOpt.Controls.Add($c); $script:optChecks[$o.Key]=$c
 }
-$oy += 6
-$chkReset = New-Object Windows.Forms.CheckBox; $chkReset.Tag='danger'; $chkReset.AutoSize=$true
-$chkReset.Text='⚠ Предельное сжатие WinSxS (ResetBase) — НЕОБРАТИМО: нельзя будет удалить обновления'
-$chkReset.MaximumSize=New-Object Drawing.Size(590,0)
-$chkReset.Location=New-Object Drawing.Point(16,$oy); $chkReset.Checked=[bool]$OptDefaults['ResetBase']
+$chkReset = New-ToggleRow '⚠ Предельное сжатие WinSxS (ResetBase)' 'НЕОБРАТИМО: нельзя будет удалить обновления' ([bool]$OptDefaults['ResetBase']) $true $rowW
 $chkReset.Add_CheckedChanged({ Update-Preview })
-$tabOpt.Controls.Add($chkReset); $script:optChecks['ResetBase']=$chkReset
+$pOpt.Controls.Add($chkReset); $script:optChecks['ResetBase']=$chkReset
 
-# ---- Вкладка «Что будет» ----
+# ---- Раздел «Что будет» ----
+$pPrev = New-Page 'prev'
+Add-PageTitle $pPrev 'Что будет сделано' 'Список шагов для выбранного режима'
 $prev = New-Object Windows.Forms.TextBox
 $prev.Multiline=$true; $prev.ReadOnly=$true; $prev.ScrollBars='Vertical'; $prev.WordWrap=$true
-$prev.BorderStyle='None'; $prev.Location=New-Object Drawing.Point(10,10); $prev.Size=New-Object Drawing.Size(588,400)
-$tabPrev.Controls.Add($prev)
+$prev.BorderStyle='FixedSingle'; $prev.Width=$rowW; $prev.Height=400; $prev.Font=New-Object Drawing.Font('Segoe UI',9.5)
+$prev.Margin=New-Object Windows.Forms.Padding(2,4,0,0)
+$pPrev.Controls.Add($prev)
 
-# -------- Кнопка СТАРТ и ссылка «офлайн» --------
-$btnStart = New-Object Windows.Forms.Button
-$btnStart.Text='СТАРТ'; $btnStart.Size=New-Object Drawing.Size(180,44)
-$btnStart.Location=New-Object Drawing.Point(444,($tabs.Bottom+12))
-$btnStart.Font=New-Object Drawing.Font('Segoe UI',12,[Drawing.FontStyle]::Bold)
-$btnStart.FlatStyle='Flat'; $btnStart.FlatAppearance.BorderSize=0; $btnStart.Cursor='Hand'
-$form.Controls.Add($btnStart); $form.AcceptButton=$btnStart
+# Порядок докинга: Fill (контент) — низший z-порядок (кладём назад), поэтому
+# занимает остаток; нижняя панель — наверх z-порядка, чтобы тянулась во всю ширину.
+$script:content.SendToBack()
+$script:sideBar.BringToFront()
+$script:actionBar.BringToFront()
 
-$lnk = New-Object Windows.Forms.LinkLabel
-$lnk.Text='Собрать офлайн-папку (для установки без интернета)...'; $lnk.AutoSize=$true
-$lnk.Location=New-Object Drawing.Point(16,($tabs.Bottom+62)); $form.Controls.Add($lnk)
-$lnk.Add_LinkClicked({
-    $m = "Будут скачаны программы, Office, FurMark, датчики температуры, драйвер NVIDIA и выгружены базовые драйверы этого ПК в папку:`n$OfflineDir`n`nНужен интернет, займёт 6–8 ГБ и 20–60 минут.`n`nНачать?"
-    if ([Windows.Forms.MessageBox]::Show($form, $m, 'Офлайн-папка', 'OKCancel', 'Question') -eq 'OK') { $form.Tag='offline'; $form.Close() }
-})
-
-# Кнопка «Перенос данных» (слева) — открывает отдельный инструмент (data-transfer.ps1).
-# Главное окно НЕ закрываем: после закрытия переноса оно остаётся на экране.
-$btnTransfer = New-Object Windows.Forms.Button
-$btnTransfer.Text='Перенос данных'; $btnTransfer.Size=New-Object Drawing.Size(180,44)
-$btnTransfer.Location=New-Object Drawing.Point(20,($tabs.Bottom+12))
-$btnTransfer.FlatStyle='Flat'; $btnTransfer.FlatAppearance.BorderSize=1; $btnTransfer.Cursor='Hand'
-$btnTransfer.TextImageRelation='ImageBeforeText'; $btnTransfer.ImageAlign='MiddleLeft'; $btnTransfer.TextAlign='MiddleCenter'
-try {
-    $dbimg = Join-Path $PSScriptRoot 'icon-db.png'
-    if (Test-Path $dbimg) {
-        $src = New-Object System.Drawing.Bitmap($dbimg)
-        $bmp = New-Object System.Drawing.Bitmap(22, 22)
-        $g = [System.Drawing.Graphics]::FromImage($bmp)
-        $g.InterpolationMode = 'HighQualityBicubic'; $g.PixelOffsetMode = 'HighQuality'
-        $g.DrawImage($src, 0, 0, 22, 22); $g.Dispose()
-        $btnTransfer.Image = $bmp
-    }
-} catch {}
-$form.Controls.Add($btnTransfer)
-$btnTransfer.Add_Click({
-    $dt = Join-Path $PSScriptRoot 'data-transfer.ps1'
-    if (-not (Test-Path $dt)) { [Windows.Forms.MessageBox]::Show($form, "Не найден файл переноса данных:`n$dt", 'Перенос данных', 'OK', 'Error') | Out-Null; return }
-    # Прячем главное окно, запускаем перенос скрыто и ждём; когда перенос закроют — показываем окно снова
-    $form.Hide()
-    try { Start-Process powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', "`"$dt`"" -Wait } catch {}
-    $form.Show(); $form.Activate()
-})
-
-$form.ClientSize = New-Object Drawing.Size(640, ($tabs.Bottom+108))
+Show-Page 'run'
+$form.ClientSize = New-Object Drawing.Size(884, 600)
 
 # -------- Логика --------
 # Какие шаги включены в выбранном режиме (с учётом настроек $Do... в начале файла)
