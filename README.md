@@ -1,4 +1,4 @@
-# <img width="34" height="34" alt="WinUP" src="https://raw.githubusercontent.com/Disotero/WinUP/main/0.1.0/windows-setup/system/icon.png">  WinUP
+# <img width="34" height="34" alt="WinUP" src="https://raw.githubusercontent.com/Disotero/WinUP/main/0.1.1/windows-setup/system/icon.png">  WinUP
 
 
 **Автоматическая настройка чистой Windows 11 — в одном окне.**
@@ -9,7 +9,7 @@
 
 ## Скачать
 
-Версия **0.1.0**. Скачайте архив `WinUP-0.1.0.zip` из [Releases](../../releases), распакуйте и запустите `Настройка Windows.bat` или `Настройка Windows.exe` (`.exe` лежит рядом с папкой `system` — без неё он не запустится, поэтому в релизе весь каталог). Либо возьмите исходники из [`0.1.0/windows-setup`](0.1.0/windows-setup) и запустите `.bat` — сборка не нужна. Запуск — от администратора (UAC сам). SmartScreen может предупредить о неподписанном exe → «Подробнее» → «Выполнить в любом случае».
+Версия **0.1.1**. Скачайте архив `WinUP-0.1.1.zip` из [Releases](../../releases), распакуйте и запустите `Настройка Windows.bat` или `Настройка Windows.exe` (`.exe` лежит рядом с папкой `system` — без неё он не запустится, поэтому в релизе весь каталог). Либо возьмите исходники из [`0.1.1/windows-setup`](0.1.1/windows-setup) и запустите `.bat` — сборка не нужна. Запуск — от администратора (UAC сам). SmartScreen может предупредить о неподписанном exe → «Подробнее» → «Выполнить в любом случае».
 
 Требования: Windows 11, x64.
 
@@ -38,7 +38,7 @@
 WinUP/
 ├── README · CHANGELOG · CONTRIBUTING · LICENSE
 ├── .github/workflows/        ← автосборка .exe
-└── 0.1.0/windows-setup/
+└── 0.1.1/windows-setup/
     ├── Настройка Windows.bat · Перенос данных.bat   ← запуск
     └── system/               ← скрипты, иконки, сборщик, техдокументация
 ```
@@ -47,7 +47,7 @@ WinUP/
 
 ## Сборка .exe
 
-Локально — `system/build-exe.ps1` (PS2EXE). На GitHub — `git tag v0.1.0 && git push origin v0.1.0` → сборка и Release.
+Локально — `system/build-exe.ps1` (PS2EXE). На GitHub — `git tag v0.1.1 && git push origin v0.1.1` → сборка и Release.
 
 ## Стек · ограничения · лицензия
 

@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Папка версии (например 0.1.0)"
+        description: "Папка версии (например 0.1.1)"
         required: true
-        default: "0.1.0"
+        default: "0.1.1"
   push:
     tags: [ 'v*' ]
 
