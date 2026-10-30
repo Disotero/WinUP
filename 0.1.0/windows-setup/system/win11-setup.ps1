@@ -1887,6 +1887,11 @@ function Add-PageTitle($flow,$title,$sub) {
         $ls.Margin=New-Object Windows.Forms.Padding(2,2,0,6); $flow.Controls.Add($ls)
     }
 }
+# Пустышка в конце прокрутки, чтобы AutoScroll гарантированно доматывал до последней строки
+function Add-Spacer($flow,$h) {
+    $sp=New-Object Windows.Forms.Label; $sp.Text=''; $sp.AutoSize=$false; $sp.Width=4; $sp.Height=$h
+    $sp.Margin=New-Object Windows.Forms.Padding(0); $flow.Controls.Add($sp)
+}
 
 # -------- Применение темы --------
 function Recolor-Labels($parent,$t) {
@@ -1952,7 +1957,7 @@ $form.MaximizeBox     = $false
 $form.MinimizeBox     = $false
 $form.TopMost         = $true
 $form.Font            = New-Object Drawing.Font('Segoe UI', 10)
-$form.ClientSize      = New-Object Drawing.Size(884, 600)
+$form.ClientSize      = New-Object Drawing.Size(884, 648)
 try {
     $iconPath = Join-Path $PSScriptRoot 'icon.ico'
     if (Test-Path $iconPath) { $form.Icon = New-Object System.Drawing.Icon($iconPath) }
@@ -1974,15 +1979,6 @@ $script:actionSep = New-Object Windows.Forms.Panel
 $script:actionSep.Dock='Top'; $script:actionSep.Height=1
 $script:actionBar.Controls.Add($script:actionSep)
 $form.Controls.Add($script:actionBar)
-
-$lnk = New-Object Windows.Forms.LinkLabel
-$lnk.Text='Собрать офлайн-папку (без интернета)...'; $lnk.AutoSize=$true
-$lnk.Location=New-Object Drawing.Point(($sideW+24),21)
-$script:actionBar.Controls.Add($lnk)
-$lnk.Add_LinkClicked({
-    $m = "Будут скачаны программы, Office, FurMark, датчики температуры, драйвер NVIDIA и выгружены базовые драйверы этого ПК в папку:`n$OfflineDir`n`nНужен интернет, займёт 6–8 ГБ и 20–60 минут.`n`nНачать?"
-    if ([Windows.Forms.MessageBox]::Show($form, $m, 'Офлайн-папка', 'OKCancel', 'Question') -eq 'OK') { $form.Tag='offline'; $form.Close() }
-})
 
 $btnStart = New-Object Windows.Forms.Button
 $btnStart.Text='СТАРТ'; $btnStart.Size=New-Object Drawing.Size(180,42)
@@ -2109,6 +2105,16 @@ $chkReinstall = New-ToggleRow 'Переустановить уже устано�
 $chkClient    = New-ToggleRow 'Подготовить для передачи другому человеку' 'После перезагрузки и входа ПК выключится для нового владельца' $ClientModeDefault $false $rowW
 $chkConsole   = New-ToggleRow 'Показывать окно консоли' 'Подробный технический лог во время работы' $ShowConsole $false $rowW
 foreach ($c in @($chk,$chkRemove,$chkOptimize,$chkReinstall,$chkClient,$chkConsole)) { $pRun.Controls.Add($c) }
+# Ссылка «офлайн-папка» — слева под строками, с тем же отступом (его задаёт Padding потока)
+$lnk = New-Object Windows.Forms.LinkLabel
+$lnk.Text='Собрать офлайн-папку (без интернета)...'; $lnk.AutoSize=$true
+$lnk.Margin=New-Object Windows.Forms.Padding(2,14,0,2)
+$pRun.Controls.Add($lnk)
+$lnk.Add_LinkClicked({
+    $m = "Будут скачаны программы, Office, FurMark, датчики температуры, драйвер NVIDIA и выгружены базовые драйверы этого ПК в папку:`n$OfflineDir`n`nНужен интернет, займёт 6–8 ГБ и 20–60 минут.`n`nНачать?"
+    if ([Windows.Forms.MessageBox]::Show($form, $m, 'Офлайн-папка', 'OKCancel', 'Question') -eq 'OK') { $form.Tag='offline'; $form.Close() }
+})
+Add-Spacer $pRun 20
 
 # ---- Раздел «Оптимизация» ----
 $pOpt = New-Page 'opt'
@@ -2134,6 +2140,7 @@ foreach ($o in $optDefsUI) {
 $chkReset = New-ToggleRow '⚠ Предельное сжатие WinSxS (ResetBase)' 'НЕОБРАТИМО: нельзя будет удалить обновления' ([bool]$OptDefaults['ResetBase']) $true $rowW
 $chkReset.Add_CheckedChanged({ Update-Preview })
 $pOpt.Controls.Add($chkReset); $script:optChecks['ResetBase']=$chkReset
+Add-Spacer $pOpt 24
 
 # ---- Раздел «Что будет» ----
 $pPrev = New-Page 'prev'
@@ -2148,7 +2155,7 @@ $pPrev.Controls.Add($prev)
 # контент справа, нижняя панель во всю ширину. Без Dock, чтобы исключить любые
 # неожиданности порядка докинга (из-за него контент раньше уходил под меню).
 Show-Page 'run'
-$form.ClientSize = New-Object Drawing.Size(884, 600)
+$form.ClientSize = New-Object Drawing.Size(884, 648)
 
 # -------- Логика --------
 # Какие шаги включены в выбранном режиме (с учётом настроек $Do... в начале файла)
