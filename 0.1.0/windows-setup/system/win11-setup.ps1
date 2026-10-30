@@ -1969,7 +1969,7 @@ try { $vf = Join-Path $PSScriptRoot 'version.txt'; if (Test-Path -LiteralPath $v
 
 # -------- Нижняя панель действий (во всю ширину, снизу) --------
 $script:actionBar = New-Object Windows.Forms.Panel
-$script:actionBar.Dock='Bottom'; $script:actionBar.Height=$actionH
+$script:actionBar.SetBounds(0, ($form.ClientSize.Height-$actionH), $form.ClientSize.Width, $actionH)
 $script:actionSep = New-Object Windows.Forms.Panel
 $script:actionSep.Dock='Top'; $script:actionSep.Height=1
 $script:actionBar.Controls.Add($script:actionSep)
@@ -1993,7 +1993,7 @@ $script:actionBar.Controls.Add($btnStart); $form.AcceptButton=$btnStart
 
 # -------- Боковое меню (слева) --------
 $script:sideBar = New-Object Windows.Forms.Panel
-$script:sideBar.Dock='Left'; $script:sideBar.Width=$sideW
+$script:sideBar.SetBounds(0, 0, $sideW, $sideH)
 $form.Controls.Add($script:sideBar)
 
 # Логотип приложения
@@ -2064,9 +2064,9 @@ $btnTheme.Add_Click({
     Apply-Theme
 })
 
-# -------- Область контента (справа, во всё оставшееся место) --------
+# -------- Область контента (справа от меню, над нижней панелью) --------
 $script:content = New-Object Windows.Forms.Panel
-$script:content.Dock='Fill'
+$script:content.SetBounds($sideW, 0, ($form.ClientSize.Width-$sideW), $sideH)
 $form.Controls.Add($script:content)
 
 # ---- Раздел «Запуск» ----
@@ -2144,9 +2144,9 @@ $prev.BorderStyle='FixedSingle'; $prev.Width=$rowW; $prev.Height=400; $prev.Font
 $prev.Margin=New-Object Windows.Forms.Padding(2,4,0,0)
 $pPrev.Controls.Add($prev)
 
-# Порядок докинга задан порядком добавления на форму: сначала нижняя панель
-# (Bottom, во всю ширину), затем боковое меню (Left, над ней), и последним —
-# контент (Fill, занимает весь остаток справа от меню). Ничего не переставляем.
+# Раскладка — абсолютными координатами (окно фиксированного размера): меню слева,
+# контент справа, нижняя панель во всю ширину. Без Dock, чтобы исключить любые
+# неожиданности порядка докинга (из-за него контент раньше уходил под меню).
 Show-Page 'run'
 $form.ClientSize = New-Object Drawing.Size(884, 600)
 

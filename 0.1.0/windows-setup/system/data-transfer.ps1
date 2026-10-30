@@ -678,7 +678,7 @@ try {
 
 $tabs = New-Object Windows.Forms.TabControl
 $tabs.Dock = 'Top'; $tabs.Height = 410
-$tabs.DrawMode = 'OwnerDrawFixed'; $tabs.SizeMode = 'Fixed'; $tabs.ItemSize = New-Object Drawing.Size(172, 34)
+$tabs.DrawMode = 'OwnerDrawFixed'; $tabs.SizeMode = 'Fixed'; $tabs.ItemSize = New-Object Drawing.Size(186, 34)
 $tabs.Add_DrawItem({
     param($s,$e)
     try {
