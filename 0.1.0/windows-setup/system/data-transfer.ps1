@@ -611,6 +611,60 @@ function Start-Op([string]$Command, [object[]]$ArgumentList = @()) {
 #  Окно
 # ---------------------------------------------------------------------------
 $font = New-Object Drawing.Font('Segoe UI', 10)
+
+# -------- Тема (Windows 11 Fluent: светлая / тёмная) --------
+function Get-ThemeDT([string]$Name) {
+    if ($Name -eq 'dark') {
+        @{ Bg=[Drawing.Color]::FromArgb(32,32,32); Fg=[Drawing.Color]::FromArgb(240,240,240); SubFg=[Drawing.Color]::FromArgb(169,169,169)
+           Accent=[Drawing.Color]::FromArgb(96,205,255); AccentFg=[Drawing.Color]::FromArgb(6,32,46); AccentHover=[Drawing.Color]::FromArgb(120,215,255)
+           Card=[Drawing.Color]::FromArgb(43,43,43); Border2=[Drawing.Color]::FromArgb(58,58,58); Hover=[Drawing.Color]::FromArgb(50,50,50) }
+    } else {
+        @{ Bg=[Drawing.Color]::FromArgb(243,243,243); Fg=[Drawing.Color]::FromArgb(26,26,26); SubFg=[Drawing.Color]::FromArgb(94,94,94)
+           Accent=[Drawing.Color]::FromArgb(0,103,192); AccentFg=[Drawing.Color]::White; AccentHover=[Drawing.Color]::FromArgb(16,110,190)
+           Card=[Drawing.Color]::White; Border2=[Drawing.Color]::FromArgb(214,214,216); Hover=[Drawing.Color]::FromArgb(237,237,237) }
+    }
+}
+$script:tfName    = 'dark'
+$script:tfTheme   = Get-ThemeDT $script:tfName
+$script:dtPrimary = @()   # акцентные кнопки действий
+$script:dtGhost   = @()   # вторичные кнопки («Выбрать…»)
+
+# Пометить кнопку как акцентную/вторичную (цвета назначит Apply-ThemeDT)
+function Style-Btn($b, [bool]$primary) {
+    $b.FlatStyle='Flat'; $b.Cursor='Hand'
+    if ($primary) { $b.Font=New-Object Drawing.Font('Segoe UI',10,[Drawing.FontStyle]::Bold); $script:dtPrimary += $b }
+    else          { $b.Font=New-Object Drawing.Font('Segoe UI',10);                            $script:dtGhost   += $b }
+}
+# Рекурсивная перекраска контролов под тему
+function Recolor-DT($parent,$t) {
+    foreach ($c in $parent.Controls) {
+        switch ($c.GetType().Name) {
+            'Label'          { $c.BackColor=[Drawing.Color]::Transparent; $c.ForeColor=$t.Fg }
+            'CheckBox'       { $c.BackColor=[Drawing.Color]::Transparent; $c.ForeColor=$t.Fg; $c.FlatStyle='Flat' }
+            'CheckedListBox' { $c.BackColor=$t.Card; $c.ForeColor=$t.Fg; $c.BorderStyle='FixedSingle' }
+            'TextBox'        { $c.BackColor=$t.Card; $c.ForeColor=$t.Fg; $c.BorderStyle='FixedSingle' }
+            'ComboBox'       { $c.BackColor=$t.Card; $c.ForeColor=$t.Fg; $c.FlatStyle='Flat' }
+            'RichTextBox'    { $c.BackColor=$t.Card; $c.ForeColor=$t.Fg }
+            'TabPage'        { $c.BackColor=$t.Bg }
+            'Panel'          { $c.BackColor=$t.Bg }
+            default          { }
+        }
+        if ($c.Controls.Count) { Recolor-DT $c $t }
+    }
+}
+function Apply-ThemeDT {
+    $t=$script:tfTheme
+    $form.BackColor=$t.Bg
+    if ($tabs) { $tabs.BackColor=$t.Bg }
+    Recolor-DT $form $t
+    foreach ($b in $script:dtPrimary) { $b.BackColor=$t.Accent; $b.ForeColor=$t.AccentFg; $b.FlatAppearance.BorderSize=0; $b.FlatAppearance.MouseOverBackColor=$t.AccentHover }
+    foreach ($b in $script:dtGhost)   { $b.BackColor=$t.Card;  $b.ForeColor=$t.Fg;       $b.FlatAppearance.BorderSize=1; $b.FlatAppearance.BorderColor=$t.Border2; $b.FlatAppearance.MouseOverBackColor=$t.Hover }
+    if ($state)      { $state.BackColor=$t.Bg; $state.ForeColor=$t.SubFg }
+    if ($logBox)     { $logBox.BackColor=$t.Card; $logBox.ForeColor=$t.Fg }
+    if ($btnThemeDT) { $btnThemeDT.BackColor=$t.Card; $btnThemeDT.ForeColor=$t.Fg; $btnThemeDT.FlatAppearance.BorderColor=$t.Border2; $btnThemeDT.FlatAppearance.MouseOverBackColor=$t.Hover }
+    if ($tabs) { $tabs.Invalidate() }
+}
+
 $form = New-Object Windows.Forms.Form
 $form.Text = 'Перенос данных'
 $form.StartPosition = 'CenterScreen'
@@ -624,6 +678,20 @@ try {
 
 $tabs = New-Object Windows.Forms.TabControl
 $tabs.Dock = 'Top'; $tabs.Height = 410
+$tabs.DrawMode = 'OwnerDrawFixed'; $tabs.SizeMode = 'Fixed'; $tabs.ItemSize = New-Object Drawing.Size(172, 34)
+$tabs.Add_DrawItem({
+    param($s,$e)
+    try {
+        $t=$script:tfTheme; $g=$e.Graphics; $g.SmoothingMode='AntiAlias'; $g.TextRenderingHint='ClearTypeGridFit'
+        $idx=$e.Index; $rect=$s.GetTabRect($idx); $sel=($idx -eq $s.SelectedIndex)
+        $bb=New-Object Drawing.SolidBrush ($(if($sel){$t.Card}else{$t.Bg})); $g.FillRectangle($bb,$rect); $bb.Dispose()
+        if ($sel) { $ab=New-Object Drawing.SolidBrush $t.Accent; $g.FillRectangle($ab,($rect.Left+12),($rect.Bottom-3),($rect.Width-24),3); $ab.Dispose() }
+        $sf=New-Object Drawing.StringFormat; $sf.Alignment='Center'; $sf.LineAlignment='Center'
+        $fb=New-Object Drawing.SolidBrush ($(if($sel){$t.Fg}else{$t.SubFg}))
+        $rf=New-Object Drawing.RectangleF ([single]$rect.X),([single]$rect.Y),([single]$rect.Width),([single]$rect.Height)
+        $g.DrawString($s.TabPages[$idx].Text,$s.Font,$fb,$rf,$sf); $fb.Dispose(); $sf.Dispose()
+    } catch {}
+})
 $form.Controls.Add($tabs)
 
 $logBox = New-Object Windows.Forms.RichTextBox
@@ -634,6 +702,20 @@ $bar = New-Object Windows.Forms.ProgressBar
 $bar.Dock = 'Bottom'; $bar.Height = 14; $bar.Style = 'Continuous'
 $form.Controls.Add($logBox); $form.Controls.Add($state); $form.Controls.Add($bar)
 $logBox.BringToFront()
+
+# Кнопка переключения темы (правый нижний угол, над статус-строкой)
+$btnThemeDT = New-Object Windows.Forms.Button
+$btnThemeDT.Text = [string][char]0x263E; $btnThemeDT.Size = New-Object Drawing.Size(32,22)
+$btnThemeDT.FlatStyle='Flat'; $btnThemeDT.FlatAppearance.BorderSize=1; $btnThemeDT.Cursor='Hand'
+$btnThemeDT.Anchor='Bottom,Right'
+$btnThemeDT.Location = New-Object Drawing.Point(($form.ClientSize.Width-40),($form.ClientSize.Height-25))
+$form.Controls.Add($btnThemeDT); $btnThemeDT.BringToFront()
+$btnThemeDT.Add_Click({
+    $script:tfName  = if ($script:tfName -eq 'dark') { 'light' } else { 'dark' }
+    $script:tfTheme = Get-ThemeDT $script:tfName
+    $btnThemeDT.Text = [string]$(if ($script:tfName -eq 'dark') { [char]0x263E } else { [char]0x263C })
+    Apply-ThemeDT
+})
 
 function New-Tab([string]$Title) { $t = New-Object Windows.Forms.TabPage; $t.Text = $Title; $t.Padding = '10,10,10,10'; $tabs.TabPages.Add($t); $t }
 function New-Button($Parent, [string]$Text, [int]$X, [int]$Y, [int]$W = 200) {
@@ -663,13 +745,13 @@ foreach ($c in $Cats) { [void]$saveList.Items.Add($c.Name, $c.Default) }
 New-Label $tSave 'Куда:' 10 250 | Out-Null
 $saveTarget = New-Object Windows.Forms.TextBox; $saveTarget.Location = '60,247'; $saveTarget.Size = '460,26'; $saveTarget.Text = (Get-DefaultTarget)
 $tSave.Controls.Add($saveTarget)
-$bBrowse = New-Button $tSave 'Выбрать...' 530 244 120
+$bBrowse = New-Button $tSave 'Выбрать...' 530 244 120; Style-Btn $bBrowse $false
 $bBrowse.Add_Click({ $p = Pick-Folder 'Куда сохранить (флешка или другой диск)'; if ($p) { $saveTarget.Text = $p } })
 $chkUpdate = New-Object Windows.Forms.CheckBox
 $chkUpdate.Text = 'Докопировать в прошлую копию (только новое и изменённое — быстрее)'
 $chkUpdate.Location = '10,290'; $chkUpdate.AutoSize = $true; $chkUpdate.Checked = $true
 $tSave.Controls.Add($chkUpdate)
-$bSave = New-Button $tSave 'Сохранить' 10 320 200
+$bSave = New-Button $tSave 'Сохранить' 10 320 200; Style-Btn $bSave $true
 $bSave.Add_Click({
     $keys = @(for ($i = 0; $i -lt $saveList.Items.Count; $i++) { if ($saveList.GetItemChecked($i)) { $Cats[$i].Key } })
     if (-not $keys) { return }
@@ -686,7 +768,7 @@ $tRest = New-Tab 'Восстановить'
 New-Label $tRest 'Выберите папку сохранения: «Перенос данных\<Имя>\<дата>» (или папку с именем — возьмётся последняя дата).' 10 10 | Out-Null
 $restPath = New-Object Windows.Forms.TextBox; $restPath.Location = '10,56'; $restPath.Size = '510,26'
 $tRest.Controls.Add($restPath)
-$bPick = New-Button $tRest 'Выбрать...' 530 53 120
+$bPick = New-Button $tRest 'Выбрать...' 530 53 120; Style-Btn $bPick $false
 $restList = New-Object Windows.Forms.CheckedListBox
 $restList.Location = '10,94'; $restList.Size = '710,150'; $restList.CheckOnClick = $true
 $tRest.Controls.Add($restList)
@@ -711,7 +793,7 @@ function Load-Backup([string]$Path) {
     Write-LogLine 'INFO' "Сохранение: пользователь $($m.User), компьютер $($m.Computer), дата $($m.Date)"
 }
 $bPick.Add_Click({ $p = Pick-Folder 'Папка «Перенос данных» на флешке или диске'; if ($p) { Load-Backup $p } })
-$bRestore = New-Button $tRest 'Восстановить' 10 290 200
+$bRestore = New-Button $tRest 'Восстановить' 10 290 200; Style-Btn $bRestore $true
 $bRestore.Add_Click({
     if (-not $script:RestRoot) { return }
     $keys = @(for ($i = 0; $i -lt $restList.Items.Count; $i++) { if ($restList.GetItemChecked($i)) { $script:RestKeys[$i] } })
@@ -726,7 +808,7 @@ $tSteam = New-Tab 'Игры Steam'
 New-Label $tSteam ("После переустановки Windows игры Steam на других дисках (например, D:\SteamLibrary) остаются на месте, " +
     "но Steam о них не знает. Здесь можно найти их и подключить обратно — ничего не придётся перекачивать.`n`n" +
     "Перед этим Steam должен быть установлен и хотя бы раз запущен с входом в аккаунт. Steam будет закрыт.") 10 10 | Out-Null
-$bSteam = New-Button $tSteam 'Найти и подключить игры' 10 130 260
+$bSteam = New-Button $tSteam 'Найти и подключить игры' 10 130 260; Style-Btn $bSteam $true
 $bSteam.Add_Click({ Start-Op 'Add-SteamLibraries' })
 
 # --- 4. Папки на другой диск ---
@@ -745,7 +827,7 @@ foreach ($d in Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | Where-O
 }
 if ($driveBox.Items.Count) { $driveBox.SelectedIndex = 0 }
 $tMove.Controls.Add($driveBox)
-$bMove = New-Button $tMove 'Перенести' 10 225 200
+$bMove = New-Button $tMove 'Перенести' 10 225 200; Style-Btn $bMove $true
 $bMove.Add_Click({
     if (-not $driveBox.SelectedItem) { [Windows.Forms.MessageBox]::Show($form, 'Второго диска нет.', 'Перенос данных') | Out-Null; return }
     $drive = ("$($driveBox.SelectedItem)" -split '\s+')[0]
@@ -762,7 +844,7 @@ function Write-LogLine([string]$Status, [string]$Text) {
         'SKIP' { '[ -- ]', [Drawing.Color]::Gray }
         'WARN' { '[ !! ]', [Drawing.Color]::DarkOrange }
         'FAIL' { '[FAIL]', [Drawing.Color]::Firebrick }
-        default { '      ', [Drawing.Color]::Black }
+        default { '      ', $script:tfTheme.Fg }
     }
     $logBox.SelectionStart = $logBox.TextLength
     $logBox.SelectionColor = $color
@@ -812,5 +894,6 @@ $form.Add_FormClosing({
     if ($Shared.Busy -and [Windows.Forms.MessageBox]::Show($form, 'Операция ещё идёт. Закрыть всё равно?', 'Перенос данных', 'YesNo', 'Warning') -ne 'Yes') { $_.Cancel = $true }
 })
 Write-LogLine 'INFO' "Пользователь: $env:USERNAME, компьютер: $env:COMPUTERNAME"
+Apply-ThemeDT
 [void]$form.ShowDialog()
 $timer.Stop()
