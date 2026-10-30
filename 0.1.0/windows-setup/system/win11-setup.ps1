@@ -2144,12 +2144,9 @@ $prev.BorderStyle='FixedSingle'; $prev.Width=$rowW; $prev.Height=400; $prev.Font
 $prev.Margin=New-Object Windows.Forms.Padding(2,4,0,0)
 $pPrev.Controls.Add($prev)
 
-# Порядок докинга: Fill (контент) — низший z-порядок (кладём назад), поэтому
-# занимает остаток; нижняя панель — наверх z-порядка, чтобы тянулась во всю ширину.
-$script:content.SendToBack()
-$script:sideBar.BringToFront()
-$script:actionBar.BringToFront()
-
+# Порядок докинга задан порядком добавления на форму: сначала нижняя панель
+# (Bottom, во всю ширину), затем боковое меню (Left, над ней), и последним —
+# контент (Fill, занимает весь остаток справа от меню). Ничего не переставляем.
 Show-Page 'run'
 $form.ClientSize = New-Object Drawing.Size(884, 600)
 
